@@ -24,6 +24,8 @@
 
 | 2026-09-28 | Phase 0：项目初始化完成（第⑬步） | git init（main分支，根提交55文件/38323行）；.gitignore/README/CONTRIBUTING（分支与配置变更纪律）；.github/workflows/ci.yml（baseline-validation校验job即时生效 + backend/ai/frontend/docker-build按文件存在自动激活）与release.yml（tag触发骨架）；scripts/validate-uav-schemas.js（本地与CI共用）；deploy/docker-compose.yml（DEV五中间件：postgis16-3.4/redis7/kafka3.7 KRaft/mosquitto2/minio，postgres首次启动自动执行db/migration，MQTT仅DEV匿名）+ mosquitto.conf；docker compose config校验通过，栈已启动（镜像拉取后台进行）；Gate 17项中"CI基础建立/DEV环境建立"落地（DEMO环境与Monitoring基础待Phase 1/9B）；待办：推送GitHub后按branch-policy.yaml配置Branch Ruleset |
 
+| 2026-09-28 | Phase 0 验收通过 | DEV五中间件全部UP（postgis16-3.4/redis7/bitnami-kafka3.7/mosquitto2/minio，postgres/redis/minio healthy）；数据库首次初始化自动执行migration：37表（34项目表+PostGIS系统表）、PostGIS 3.4.3、sys_permission 11条种子、fire_point.location_method+geometry列落位；Kafka started。备注：Bitnami命名空间被主流镜像站限流（多个加速器denied，最终拉取成功）；redis复用本地缓存。Phase 0 关账，Gate 17项剩4项（DEMO环境/Monitoring基础随Phase 1/9B落地） |
+
 ------
 
 ## 二、未决 Issue（按基线第71章流程登记）
