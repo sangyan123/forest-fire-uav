@@ -1,0 +1,47 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: forest-fire-uav-backend
+
+  datasource:
+    # 环境变量优先；本 yml 默认值仅本地兜底（容器环境由 deploy compose 注入）
+    url: ${DB_URL:jdbc:postgresql://postgres:5432/forest_fire}
+    username: ${DB_USERNAME:forest_fire}
+    password: ${DB_PASSWORD:forest_fire}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+  jpa:
+    hibernate:
+      # Schema 由 postgres 容器初始化（db/migration/V1__baseline_schema.sql）执行，禁止应用再建
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    # 迁移由 postgres 容器初始化完成，应用侧禁止再跑
+    enabled: false
+
+  jackson:
+    # 时间统一 ISO-8601 字符串（Instant → "2026-09-27T10:00:00.123Z"）
+    serialization:
+      write-dates-as-timestamps: false
+      write-date-timestamps-as-nanoseconds: false
+    time-zone: UTC
+
+gateway:
+  # UAV Gateway 下发地址，容器环境用 GATEWAY_URL 覆盖
+  url: ${GATEWAY_URL:http://uav-gateway:9000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

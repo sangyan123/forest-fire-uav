@@ -1,0 +1,22 @@
+server:
+  port: 9000
+
+spring:
+  application:
+    name: uav-gateway
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+gateway:
+  mqtt:
+    # MQTT_HOST: full broker URI; a value without scheme is prefixed with tcp://
+    broker-uri: ${MQTT_HOST:tcp://mqtt:1883}
+  backend-url: ${BACKEND_URL:http://backend:8080}
+
+logging:
+  level:
+    root: INFO
