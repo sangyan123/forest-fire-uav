@@ -1,0 +1,197 @@
+# =====================================================================
+# 森林防火无人机智能系统 — 算法指标基线（baseline-metrics.yaml）
+# =====================================================================
+# 归属:   00号基线 V1.3 第5章（docs/00-doc/ 机器可执行来源）与第41~53章
+# 版本:   metricBaselineVersion = algorithm-metrics-v1.0
+# 日期:   2026-09-27
+#
+# 规则（基线第49/51/52章）:
+#   1. 本文件是算法验收指标的唯一机器来源；旧版本不得直接删除，
+#      升版必须保留历史（algorithm-metrics-v1.x 序列）；
+#   2. F01~F04 为 V1 正式验收目标（基线第41章冻结）；
+#      F05~F12 为 V1 候选工程基线（基线第42~50章，继承自已归档的
+#      V1.0 第43~50章），正式化必须走第51章转正流程；
+#   3. 转正流程（基线第51章）: 06算法方案 + 08测试方案 + 数据集版本
+#      + 实验结果 + 技术评审 → 转为正式 V1 验收指标；
+#   4. 数值修改走基线第32章变更协议，禁止直接手改；
+#   5. 测试结果必须按"目标值 / 实际值 / 结论(Pass/Fail)"记录（08号V1.1第31章）。
+#
+# 不属于本文件的指标:
+#   - 系统性能基线（API P95≤500ms、告警≤3s 等）→ owner 08号 V1.1 第24章，
+#     机器来源为 08号 Test Config（基线第4章：验收指标 owner=08）
+#   - 算法参数阈值（检测/核验/电量/去重）→ docs/00-doc/constants.yaml
+# =====================================================================
+
+meta:
+  file_version: "baseline-metrics-v1.0"
+  metricBaselineVersion: "algorithm-metrics-v1.0"
+  baseline: "00 跨文档设计基线与矛盾修订清单 V1.3（docs/00-doc/active/00_跨文档设计基线_V1.3.md）第41~53章"
+  created: 2026-09-27
+  status_note: "V1 Engineering Targets：MVP工程验收基线，不代表当前模型已达到（基线第36章精神）"
+  promotion_flow: "候选 →(06方案+08方案+数据集版本+实验结果+技术评审)→ 正式"
+
+# ---------------------------------------------------------------------
+# 数据集与评估协议（基线第53章）
+# ---------------------------------------------------------------------
+dataset_policy:
+  source: "基线 V1.3 第53章"
+  split:
+    train: 70          # %
+    validation: 15     # %
+    test: 15           # %
+  group_split_by:      # 必须按以下维度做组级拆分
+    - 航次
+    - 场景
+    - 时间段
+    - 地理区域
+  forbidden: "同一视频的帧级随机打散（第1帧进Train第2帧进Test类），防止数据泄漏"
+  dataset_version_required: true   # 必须记录组级拆分清单与 datasetVersion（06号V1.1第9/30章）
+
+# ---------------------------------------------------------------------
+# 算法指标
+# ---------------------------------------------------------------------
+metrics:
+
+  F01:
+    name: 火情检测（烟雾/火焰）
+    owner: "06号算法专项 V1.1（A01）/ 08号测试与验收 V1.1 第7章"
+    status: formal          # 基线第41章冻结
+    targets:
+      - { metric: Recall,              op: ">=", value: 0.85 }
+      - { metric: Precision,           op: ">=", value: 0.75 }
+      - { metric: mAP@50,              op: ">=", value: 0.75 }
+      - { metric: Small_Target_Recall, op: ">=", value: 0.70 }
+    notes:
+      - "检测置信度分层与连续帧参数见 constants.yaml#fire_detection（基线第33章）。"
+
+  F02:
+    name: 红外热异常检测
+    owner: "06号算法专项 V1.1（A02）/ 08号测试与验收 V1.1 第8章"
+    status: formal
+    targets:
+      - { metric: Recall,            op: ">=", value: 0.80 }
+      - { metric: Precision,         op: ">=", value: 0.80 }
+      - { metric: False_Alarm_Rate,  op: "<=", value: 0.15 }
+    notes:
+      - "须排除暴晒/金属/岩石/动物等假高温源（06号 A02）。"
+
+  F03:
+    name: 火点定位
+    owner: "06号算法专项 V1.1（A03）/ 08号测试与验收 V1.1 第9章"
+    status: formal
+    targets:
+      - { metric: P50_Position_Error, op: "<=", value: 15, unit: m }
+      - { metric: P90_Position_Error, op: "<=", value: 30, unit: m }
+      - { metric: Max_Position_Error, op: "<=", value: 60, unit: m }
+    notes:
+      - "目标针对第一阶段普通GPS/基础视觉定位环境；RTK/DEM高精度版本可另立更高标准（基线继承自V1.0第39章）。"
+      - "定位方法枚举见 enums.yaml#LocationMethod。"
+
+  F04:
+    name: 火情二次核验
+    owner: "06号算法专项 V1.1（A04）/ 08号测试与验收 V1.1 第10章"
+    status: formal
+    targets:
+      - { metric: Precision,             op: ">=", value: 0.90 }
+      - { metric: False_Alarm_Rate,      op: "<=", value: 0.10 }
+      - { metric: Recall,                op: ">=", value: 0.85 }
+      - { metric: P95_Verification_Time, op: "<=", value: 5, unit: s }
+    notes:
+      - "核验权重与决策阈值为参数，见 constants.yaml#verification（基线第34章）。"
+
+  F05:
+    name: 火场区域提取
+    owner: "06号算法专项 V1.1（A05）/ 08号测试与验收 V1.1 第11章"
+    status: candidate        # 基线第42~43章：V1候选工程基线，待转正
+    targets:
+      - { metric: mIoU,                op: ">=", value: 0.70 }
+      - { metric: Recall,              op: ">=", value: 0.80 }
+      - { metric: Polygon_Area_Error,  op: "<=", value: 20, unit: "%" }
+
+  F06:
+    name: 火势动态跟踪
+    owner: "06号算法专项 V1.1（A06）/ 08号测试与验收 V1.1 第12章"
+    status: candidate
+    targets:
+      - { metric: Track_Continuity, op: ">=", value: 0.85 }
+      - { metric: ID_Switch_Rate,   op: "<=", value: 0.10 }
+      - { metric: Area_Error,       op: "<=", value: 20, unit: "%" }
+
+  F07:
+    name: 森林火险风险评估
+    owner: "06号算法专项 V1.1（A07）/ 08号测试与验收 V1.1 第13章"
+    status: candidate
+    targets:
+      - { metric: AUC,              op: ">=", value: 0.80 }
+      - { metric: High_Risk_Recall, op: ">=", value: 0.80 }
+    notes:
+      - "同时要求结果可解释（SHAP等），不以单一Accuracy为核心指标（基线第45章）。"
+      - "风险模型因子/权重结构见 ISSUE-001（change-log.md），落地于 config/algorithm/risk-v1.yaml，与本指标目标无阻塞关系。"
+
+  F08:
+    name: 智能巡检任务生成 / 路径规划
+    owner: "06号算法专项 V1.1（A08）/ 08号测试与验收 V1.1 第14章"
+    status: candidate
+    targets:
+      - { metric: Planning_Success,      op: ">=", value: 95, unit: "%" }
+      - { metric: Coverage,              op: ">=", value: 95, unit: "%" }
+      - { metric: Constraint_Violation,  op: "=",  value: 0 }
+      - { metric: Planning_Time,         op: "<=", value: 2, unit: s/mission }
+    notes:
+      - "Planning Time 于模拟环境评估。"
+
+  F09:
+    name: 无人机智能调度
+    owner: "06号算法专项 V1.1（A09）/ 08号测试与验收 V1.1 第15章"
+    status: candidate
+    targets:
+      - { metric: Dispatch_Success,      op: ">=", value: 95, unit: "%" }
+      - { metric: Illegal_Assignment,    op: "=",  value: 0 }
+      - { metric: Avg_Dispatch_Time,     op: "<=", value: 1, unit: s }
+      - { metric: Mission_Conflict,      op: "=",  value: 0 }
+    notes:
+      - "F09-Basic（P0/MVP）与 F09-Advanced（P1）拆分见基线第8章；本目标对两档均适用，Advanced 不降低门槛。"
+
+  F10:
+    name: 灾后过火区域评估
+    owner: "06号算法专项 V1.1（A10）/ 08号测试与验收 V1.1 第16章"
+    status: candidate
+    targets:
+      - { metric: mIoU,      op: ">=", value: 0.70 }
+      - { metric: Recall,    op: ">=", value: 0.80 }
+      - { metric: Area_Error, op: "<=", value: 20, unit: "%" }
+
+  F11:
+    name: 火势趋势预测
+    owner: "06号算法专项 V1.1（A11）/ 08号测试与验收 V1.1 第17章"
+    status: candidate
+    scope:
+      forecast_horizon_min: 10    # 第一阶段只验收10分钟短时预测（基线第49章）；30/60min为后续扩展
+    targets:
+      - { metric: Area_Error,     op: "<=", value: 30, unit: "%" }
+      - { metric: Centroid_Error, op: "<=", value: 50, unit: m }
+      - { metric: Trend_Accuracy, op: ">=", value: 75, unit: "%" }
+
+  F12:
+    name: 多无人机协同
+    owner: "06号算法专项 V1.1（A12）/ 08号测试与验收 V1.1 第18章"
+    status: candidate
+    targets:
+      - { metric: Task_Completion,            op: ">=", value: 90, unit: "%" }
+      - { metric: Collision_Constraint_Violation, op: "=", value: 0 }
+      - { metric: Duplicate_Assignment,       op: "=",  value: 0 }
+      - { metric: Single_UAV_Failure_Recovery, op: ">=", value: 90, unit: "%" }
+    notes:
+      - "测试须覆盖 2/3/5/10 架规模（08号V1.1 第18章）。"
+
+# ---------------------------------------------------------------------
+# pointers：不属于本文件的指标去向
+# ---------------------------------------------------------------------
+pointers:
+  system_performance_baselines:
+    owner: "08号测试与验收文档 V1.1 第24章（API P95≤500ms、UAV状态入库≤1s、告警≤3s、Mock AI检测≤1s、Mission生成≤2s、Dispatch≤1s、Command下发≤2s；稳定性1h/6h/24h）"
+    machine_source: "08号 Test Config（基线第4章：验收指标 owner=08）"
+  algorithm_params:
+    target: "docs/00-doc/constants.yaml（检测/核验/电量/去重/Token）"
+  risk_model_structure:
+    target: "config/algorithm/risk-v1.yaml（第⑨步，ISSUE-001 OPEN）"

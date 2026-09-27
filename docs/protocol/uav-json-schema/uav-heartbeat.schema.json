@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forest-fire-uav.local/schemas/uav-heartbeat.schema.json",
+  "title": "UAV_HEARTBEAT",
+  "description": "心跳消息（05号第50章）：每5秒发送，携带当前飞行状态；连续3次未收到判定 OFFLINE。Topic: uav/{deviceId}/state。",
+  "allOf": [
+    { "$ref": "defs.schema.json#/definitions/HeaderBase" },
+    {
+      "properties": {
+        "messageType": { "const": "UAV_HEARTBEAT" },
+        "status": { "$ref": "defs.schema.json#/definitions/FlightStatus" }
+      },
+      "required": ["status"]
+    }
+  ]
+}

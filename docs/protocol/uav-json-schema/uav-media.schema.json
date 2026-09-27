@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forest-fire-uav.local/schemas/uav-media.schema.json",
+  "title": "UAV_MEDIA",
+  "description": "媒体消息（05号第37~38章）：RGB/热红外图片与视频元数据；文件本体经MinIO/S3预签名URL访问。media.type为七值枚举（第一阶段启用RGB_IMAGE/THERMAL_IMAGE）。热红外媒体附thermal统计段。Topic: uav/{deviceId}/media。",
+  "allOf": [
+    { "$ref": "defs.schema.json#/definitions/HeaderBase" },
+    {
+      "properties": {
+        "messageType": { "const": "UAV_MEDIA" },
+        "media": { "$ref": "defs.schema.json#/definitions/MediaPayload" }
+      },
+      "required": ["media"]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forest-fire-uav.local/schemas/uav-command.schema.json",
+  "title": "UAV_COMMAND",
+  "description": "平台下行命令消息（05号第39~40章）：commandType为九项核心命令集（枚举owner=05+09）；payload为命令参数——GOTO为TargetPoint（altitude必须与altitudeMode同时出现），TAKEOFF/LAND/RETURN_HOME/PAUSE/RESUME/CAPTURE_RGB/CAPTURE_THERMAL无参数。扩展命令11项见05号第40章（须经09号能力矩阵确认）。Topic: uav/{deviceId}/command。",
+  "allOf": [
+    { "$ref": "defs.schema.json#/definitions/HeaderBase" },
+    {
+      "properties": {
+        "messageType": { "const": "UAV_COMMAND" },
+        "commandId": { "type": "string", "minLength": 1, "examples": ["CMD-001"] },
+        "commandType": { "$ref": "defs.schema.json#/definitions/CoreCommandType" },
+        "priority": { "type": "string", "description": "命令优先级（05号示例HIGH；V1不冻结枚举）", "examples": ["HIGH"] },
+        "payload": {
+          "type": "object",
+          "description": "命令参数；GOTO时为TargetPoint结构（altitude+altitudeMode），其余命令为任意参数对象",
+          "anyOf": [
+            { "$ref": "defs.schema.json#/definitions/TargetPoint" },
+            { "type": "object", "additionalProperties": true }
+          ]
+        }
+      },
+      "required": ["commandId", "commandType"]
+    }
+  ]
+}

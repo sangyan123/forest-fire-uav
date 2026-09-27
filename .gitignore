@@ -1,0 +1,49 @@
+# ==== Java / Maven（backend / uav-gateway / mock-uav）====
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+
+# ==== Python（ai-service）====
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ==== Node（frontend）====
+node_modules/
+dist/
+.npm/
+*.tsbuildinfo
+
+# ==== 训练产物与模型文件（走 Model Registry / 对象存储，不入库）====
+ai-service/models/
+*.pt
+*.onnx
+*.h5
+*.pkl
+
+# ==== IDE ====
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# ==== OS ====
+.DS_Store
+Thumbs.db
+
+# ==== 本地环境与运行时 ====
+.env
+.env.*
+deploy/volumes/
+logs/
+*.log
+
+# ==== 临时 ====
+*.tmp
+tmp/

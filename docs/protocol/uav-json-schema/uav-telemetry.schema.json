@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forest-fire-uav.local/schemas/uav-telemetry.schema.json",
+  "title": "UAV_TELEMETRY",
+  "description": "高频轻量遥测消息（05号第8.1节）：1Hz（高并发可5/10/20Hz）。载荷为 position/attitude/velocity/battery/navigation/link 六个子模型（与UAV_STATE形成全量/高频两层；环境信息由UAV_ENVIRONMENT单独上报）。Topic: uav/{deviceId}/telemetry。",
+  "allOf": [
+    { "$ref": "defs.schema.json#/definitions/HeaderBase" },
+    {
+      "properties": { "messageType": { "const": "UAV_TELEMETRY" } },
+      "required": ["position", "attitude", "velocity", "battery", "navigation", "link"]
+    }
+  ]
+}

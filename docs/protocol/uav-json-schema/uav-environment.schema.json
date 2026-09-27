@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forest-fire-uav.local/schemas/uav-environment.schema.json",
+  "title": "UAV_ENVIRONMENT",
+  "description": "环境消息（05号第8.3/33章）：载荷为environment子模型5字段。注意environment.windSpeed（气象风，来源WEATHER_STATION/气象API）≠无人机姿态估算风速uav_estimated_wind，两字段绝对不混。",
+  "allOf": [
+    { "$ref": "defs.schema.json#/definitions/HeaderBase" },
+    {
+      "properties": {
+        "messageType": { "const": "UAV_ENVIRONMENT" },
+        "environment": { "$ref": "defs.schema.json#/definitions/Environment" }
+      },
+      "required": ["environment"]
+    }
+  ]
+}

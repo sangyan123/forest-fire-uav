@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0",
+  "messageId": "MSG-20260927-000001",
+  "messageType": "UAV_STATE",
+  "deviceId": "UAV-001",
+  "timestamp": "2026-09-27T10:00:00.123Z",
+  "source": "MOCK",
+  "sequence": 10231,
+  "device": {
+    "manufacturer": "MOCK",
+    "model": "Forest-UAV-T1",
+    "serialNumber": "MOCK-001",
+    "firmwareVersion": "1.0.0",
+    "deviceType": "AIRCRAFT"
+  },
+  "position": {
+    "latitude": 30.123456,
+    "longitude": 114.123456,
+    "absoluteAltitude": 325.42,
+    "relativeAltitude": 100.20,
+    "groundElevation": 225.22,
+    "horizontalAccuracy": 0.8,
+    "verticalAccuracy": 1.2
+  },
+  "attitude": {
+    "heading": 135.5,
+    "pitch": 2.1,
+    "roll": -1.2
+  },
+  "velocity": {
+    "horizontalSpeed": 8.5,
+    "verticalSpeed": 0.2,
+    "northSpeed": 4.5,
+    "eastSpeed": 7.2
+  },
+  "navigation": {
+    "gpsSatellites": 22,
+    "rtkSatellites": 17,
+    "gpsStatus": "3D_FIX",
+    "rtkStatus": "FIXED",
+    "positionSource": "RTK"
+  },
+  "battery": {
+    "percentage": 76,
+    "voltage": 23500,
+    "current": 4200,
+    "temperature": 38.2,
+    "remainingFlightTime": 920,
+    "returnHomeThreshold": 20,
+    "landingThreshold": 10
+  },
+  "gimbal": {
+    "pitch": -35.5,
+    "roll": 0.2,
+    "yaw": 22.4,
+    "mode": "TARGET"
+  },
+  "payload": {
+    "rgb": { "available": true, "status": "READY" },
+    "thermal": { "available": true, "status": "READY" },
+    "zoom": { "available": true, "maxZoom": 20 }
+  },
+  "flight": {
+    "status": "FLYING",
+    "mode": "WAYLINE",
+    "missionId": "MISSION-001",
+    "armed": true
+  },
+  "home": {
+    "latitude": 30.120000,
+    "longitude": 114.120000,
+    "altitude": 260,
+    "distance": 1250.5
+  },
+  "link": {
+    "connected": true,
+    "latencyMs": 42,
+    "signalStrength": 86,
+    "networkType": "4G"
+  },
+  "environment": {
+    "temperature": 31.5,
+    "humidity": 32,
+    "windSpeed": 4.8,
+    "windDirection": 62,
+    "source": "WEATHER_STATION"
+  },
+  "capability": {
+    "rgb": true,
+    "thermal": true,
+    "zoom": true,
+    "gimbalLookAt": true,
+    "wayline": true,
+    "liveStream": true,
+    "photo": true,
+    "video": true,
+    "rtk": true,
+    "returnHome": true
+  }
+}

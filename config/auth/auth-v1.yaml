@@ -1,0 +1,60 @@
+# =====================================================================
+# 认证与RBAC — 机器可执行配置（auth-v1.yaml）
+# =====================================================================
+# configVersion: auth-config-v1.0
+# provenance:   07号《API与接口协议文档》V1.2 第35章（基线V1.3第54~59章）
+# 消费方:       backend（认证/鉴权中间件）、07号文档、04号sys_permission（仅存储引用）
+# 地位:         自本文件建立起，Token有效期与角色-权限映射的唯一拥有者为本文件
+#               （基线第56章：constants.yaml#auth_token_lifetime 转为过渡记录）
+# =====================================================================
+
+configVersion: auth-config-v1.0
+status: ACTIVE
+
+auth_model:
+  type: "JWT Access Token + Refresh Token + RBAC"
+  endpoints:                       # 认证四接口（07号第35.5节/55章）
+    - POST /api/v1/auth/login
+    - POST /api/v1/auth/refresh
+    - POST /api/v1/auth/logout
+    - GET  /api/v1/auth/me
+
+token_lifetime:
+  access_token_minutes: 30         # V1过渡基线值，正式变更走基线第32章协议
+  refresh_token_days: 7
+
+roles:                             # 六角色（07号第35.4节）
+  - ADMIN
+  - OPERATOR
+  - DISPATCHER
+  - ALGORITHM_ENGINEER
+  - VIEWER
+  - AUDITOR
+
+permissions:                       # 权限集合11项（07号第35.5节，主定义07）
+  - uav:read
+  - uav:command
+  - mission:read
+  - mission:create
+  - mission:cancel
+  - fire:read
+  - fire:confirm
+  - algorithm:read
+  - algorithm:manage
+  - system:manage
+  - audit:read
+
+role_permissions:                  # V1默认映射（07号第35.7节矩阵的机器形态）
+  ADMIN:              [uav:read, uav:command, mission:read, mission:create, mission:cancel, fire:read, fire:confirm, algorithm:read, algorithm:manage, system:manage, audit:read]
+  OPERATOR:           [uav:read, uav:command, mission:read, mission:create, mission:cancel, fire:read]
+  DISPATCHER:         [uav:read, mission:read, mission:create, mission:cancel, fire:read, fire:confirm]
+  ALGORITHM_ENGINEER: [uav:read, mission:read, fire:read, algorithm:read, algorithm:manage]
+  VIEWER:             [uav:read, mission:read, fire:read, algorithm:read]
+  AUDITOR:            [uav:read, mission:read, fire:read, algorithm:read, audit:read]
+
+uav_control:
+  required_permission: "uav:command"                     # 基线第59章
+  protected_commands: [TAKEOFF, GOTO, RETURN_HOME, PAUSE, RESUME]
+  audit: "所有UAV控制行为必须写入AuditLog"
+
+storage_note: "04号sys_permission仅存储与引用本文件的权限集合，不得自行创造权限定义（基线第58章）。"

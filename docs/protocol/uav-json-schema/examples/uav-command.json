@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "1.0",
+  "messageId": "CMD-MSG-001",
+  "messageType": "UAV_COMMAND",
+  "deviceId": "UAV-001",
+  "timestamp": "2026-09-27T10:05:00Z",
+  "source": "MOCK",
+  "sequence": 10233,
+  "commandId": "CMD-001",
+  "commandType": "GOTO",
+  "priority": "HIGH",
+  "payload": {
+    "latitude": 30.126,
+    "longitude": 114.129,
+    "altitude": 120,
+    "altitudeMode": "RELATIVE_TO_TAKEOFF"
+  }
+}

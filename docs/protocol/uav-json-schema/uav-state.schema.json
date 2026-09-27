@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forest-fire-uav.local/schemas/uav-state.schema.json",
+  "title": "UAV_STATE",
+  "description": "全量状态消息（05号第5/9/36章）：Header + 13个子模型（device/position/attitude/velocity/navigation/battery/gimbal/payload/flight/home/link/environment/capability）。Topic: uav/{deviceId}/state，1Hz。",
+  "allOf": [
+    { "$ref": "defs.schema.json#/definitions/HeaderBase" },
+    {
+      "properties": { "messageType": { "const": "UAV_STATE" } },
+      "required": ["device", "position", "attitude", "velocity", "navigation", "battery", "gimbal", "payload", "flight", "home", "link", "environment", "capability"]
+    }
+  ]
+}

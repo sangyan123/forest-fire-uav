@@ -1,0 +1,114 @@
+# =====================================================================
+# 森林防火无人机智能系统 — DEV 中间件栈（Phase 0/1）
+# =====================================================================
+# 对应:  10号《部署与运维文档》V1.1（deploy/ 服务规划）、11号 V2.1 Phase 1
+# 环境:  仅 DEV；TEST/DEMO/PROD 环境定义见 docs/10-ops 与 config/deployment（待建）
+# 说明:  backend/ai-service/uav-gateway/mock-uav/frontend 服务容器在 Phase 1
+#        各组件骨架落地后追加；本文件只含五个中间件。
+# 首次启动: postgres 容器自动执行 db/migration/（V1 建表 + V2 权限种子）
+# =====================================================================
+
+name: forest-fire-dev
+
+networks:
+  forest-fire-net:
+    driver: bridge
+
+volumes:
+  pg_data:
+  kafka_data:
+  minio_data:
+
+services:
+
+  # -------------------------------------------------------------------
+  # PostgreSQL 16 + PostGIS（04号：核心业务数据 + 空间数据）
+  # -------------------------------------------------------------------
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: forest-fire-postgres
+    environment:
+      POSTGRES_DB: forest_fire
+      POSTGRES_USER: forest_fire
+      POSTGRES_PASSWORD: forest_fire_dev      # 仅DEV；生产走Secret管理（10号）
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ../db/migration:/docker-entrypoint-initdb.d:ro   # 首次初始化自动跑迁移
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forest_fire -d forest_fire"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [forest-fire-net]
+
+  # -------------------------------------------------------------------
+  # Redis（实时状态与缓存）
+  # -------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: forest-fire-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [forest-fire-net]
+
+  # -------------------------------------------------------------------
+  # Kafka（事件流，KRaft 单节点）—— Kafka 主题清单见 10号 V1.1
+  # -------------------------------------------------------------------
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: forest-fire-kafka
+    environment:
+      KAFKA_CFG_NODE_ID: 0
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/bitnami/kafka
+    networks: [forest-fire-net]
+
+  # -------------------------------------------------------------------
+  # MQTT（Mosquitto；UAV遥测/命令通道）
+  # 注意: DEV 匿名访问；生产必须 TLS + Topic ACL（10号V1.1）
+  # -------------------------------------------------------------------
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: forest-fire-mqtt
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    networks: [forest-fire-net]
+
+  # -------------------------------------------------------------------
+  # MinIO（对象存储；媒体文件经预签名URL访问）
+  # -------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: forest-fire-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: forest_fire
+      MINIO_ROOT_PASSWORD: forest_fire_dev    # 仅DEV；生产走Secret管理
+    ports:
+      - "9000:9000"
+      - "9001:9001"                           # Console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [forest-fire-net]

@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forest-fire-uav.local/schemas/uav-mission-state.schema.json",
+  "title": "UAV_MISSION_STATE",
+  "description": "任务状态消息（05号第43章）：missionType=业务目的（owner=02号，六值），status为任务执行状态（owner=04号，八值）；一个任务由一组命令实现（FIRE_VERIFICATION可含GOTO/GIMBAL_LOOK_AT/CAPTURE_RGB/CAPTURE_THERMAL）。Topic: uav/{deviceId}/mission。",
+  "allOf": [
+    { "$ref": "defs.schema.json#/definitions/HeaderBase" },
+    {
+      "properties": {
+        "messageType": { "const": "UAV_MISSION_STATE" },
+        "mission": { "$ref": "defs.schema.json#/definitions/MissionPayload" }
+      },
+      "required": ["mission"]
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+# =====================================================================
+# 森林防火无人机智能系统 — 参数唯一数值来源（constants.yaml）
+# =====================================================================
+# 归属:   00号基线 V1.3 第5章（docs/00-doc/ 机器可执行来源）
+# 版本:   constants-v1.0
+# 日期:   2026-09-27
+#
+# 定位:
+#   本文件只收录 00基线 V1.3 自身章节冻结的数值参数
+#   （第33章 F01 / 第34章 F04 / 第35章 去重 / 第36章 电量 / 第56章 Token过渡基线）。
+#
+# 规则（基线第32~33章、第76章）:
+#   1. 每个数值的唯一基线是 00基线对应章节；本文件是其机器可执行注册表；
+#   2. 修改任何数值必须走基线第32章变更协议（Experiment ID + Dataset
+#      Version + Old/New + Metrics + Reviewer + Change Reason），禁止直接手改；
+#   3. 运行时配置文件（config/algorithm/*.yaml 等，第⑨~⑩步建立）以
+#      configVersion 镜像本文件数值，不得另创数值；
+#   4. 不属于本文件的数值一律见文末 pointers（指标→baseline-metrics.yaml，
+#      F07权重→config/algorithm/risk-v1.yaml/ISSUE-001，协议频率→05号，
+#      Mock仿真→05号，资源规格→10号）。
+# =====================================================================
+
+meta:
+  file_version: constants-v1.0
+  baseline: "00 跨文档设计基线与矛盾修订清单 V1.3（docs/00-doc/active/00_跨文档设计基线_V1.3.md）"
+  created: 2026-09-27
+  status: "V1 Engineering Baseline（工程基线，非科学结论）"
+  change_protocol: "基线第32章：Experiment ID + Dataset Version + Old/New + Evaluation Metrics + Reviewer + Change Reason"
+
+constants:
+
+  # -------------------------------------------------------------------
+  # 1. 电量四级阈值（基线第36章）
+  #    镜像目标: config/algorithm/uav-safety-v1.yaml（第⑨步）
+  #    枚举对应: enums.yaml#BatteryState
+  # -------------------------------------------------------------------
+  battery_thresholds:
+    baseline_chapter: "V1.3 第36章"
+    unit: percent_remaining
+    tiers:
+      low_battery_warning_pct: 30    # BatteryState.LOW_BATTERY_WARNING 起点；触发 UAV_EVENT.LOW_BATTERY
+      no_new_mission_pct: 25         # BatteryState.NO_NEW_MISSION 起点；不再接受新任务
+      return_home_pct: 20            # BatteryState.RETURN_HOME 起点；优先返航/结束当前任务
+      critical_pct: 10               # BatteryState.CRITICAL 起点；紧急降落；触发 UAV_EVENT.CRITICAL_BATTERY
+    ranges:
+      NORMAL:              "remaining >= 30%"
+      LOW_BATTERY_WARNING: "25% <= remaining < 30%"
+      NO_NEW_MISSION:      "20% <= remaining < 25%"
+      RETURN_HOME:         "10% <= remaining < 20%"
+      CRITICAL:            "remaining < 10%"
+    vendor_safety_profile_override: true
+    override_note: "真实设备可按机型以 Vendor Safety Profile 覆盖软件基线（09号第25章），覆盖值必须记录并审计；不替代飞控/电池厂商自身失效保护。"
+    consumers: ["doc-04", "doc-05", "doc-08", "doc-09", "backend", "uav-gateway", "mock-uav"]
+
+  # -------------------------------------------------------------------
+  # 2. F01 火情检测参数（基线第33章）
+  #    镜像目标: config/algorithm/fire-detection-v1.yaml（第⑨步）
+  # -------------------------------------------------------------------
+  fire_detection:
+    baseline_chapter: "V1.3 第33章"
+    config_version_example: "fire-detection-config-v1.0"
+    thresholds:
+      t_candidate: 0.40              # confidence < 0.40 忽略；0.40~0.60 为 Candidate
+      t_alert: 0.60                  # 0.60~0.80 为 Alert Candidate
+      t_confirm: 0.80                # >= 0.80 为 High Confidence（仍须进入F04核验，不可直接确认火情）
+    temporal_stability:
+      window_frames: 5               # TEMPORAL_WINDOW
+      min_positive_frames: 3         # MIN_POSITIVE_FRAMES：5帧窗口内至少3帧一致目标
+    notes:
+      - "以上为V1工程基线，必须参与验证集实验（基线第31章）。"
+      - "最终火情确认必须经F04核验（基线第33章）。"
+    consumers: ["doc-03", "doc-06", "doc-08", "ai-service", "backend"]
+
+  # -------------------------------------------------------------------
+  # 3. F04 二次核验权重与决策（基线第34章）
+  #    镜像目标: config/algorithm/verification-v1.yaml（第⑨步）
+  # -------------------------------------------------------------------
+  verification:
+    baseline_chapter: "V1.3 第34章"
+    config_version_example: "verification-config-v1.0"
+    weights:
+      rgb: 0.35
+      thermal: 0.35
+      temporal: 0.15
+      spatial: 0.15
+    formula: "VerificationScore = 0.35×RGB + 0.35×Thermal + 0.15×Temporal + 0.15×Spatial"
+    decision:
+      confirmed_min: 0.80            # Score >= 0.80 → CONFIRMED
+      false_alarm_below: 0.50        # Score < 0.50 → FALSE_ALARM；0.50~<0.80 → UNCERTAIN
+    consumers: ["doc-03", "doc-06", "doc-08", "ai-service", "backend"]
+
+  # -------------------------------------------------------------------
+  # 4. 火情去重参数（基线第35章）
+  # -------------------------------------------------------------------
+  fire_dedup:
+    baseline_chapter: "V1.3 第35章"
+    distance_m: 100                  # DEDUP_DISTANCE：空间距离阈值
+    time_s: 120                      # DEDUP_TIME：时间差阈值
+    same_category_required: true     # 类别一致才判同一火情候选事件
+    note: "V1工程基线，不是森林火灾的通用科学阈值。"
+    consumers: ["doc-03", "doc-04", "doc-08", "backend"]
+
+  # -------------------------------------------------------------------
+  # 5. Token 有效期（基线第56章）
+  #    【已移交】唯一拥有者现为 config/auth/auth-v1.yaml（第⑩步建立）；
+  #    以下数值仅为冻结历史记录，00号不再独立维护第二套Token有效期。
+  # -------------------------------------------------------------------
+  auth_token_lifetime:
+    baseline_chapter: "V1.3 第56章"
+    status: migrated_to_auth_config   # 唯一拥有者：config/auth/auth-v1.yaml
+    access_token_minutes: 30
+    refresh_token_days: 7
+    consumers: ["doc-07", "backend"]
+
+# ---------------------------------------------------------------------
+# pointers：不属于本文件的数值参数去向（防止同一数字多处维护）
+# ---------------------------------------------------------------------
+pointers:
+  algorithm_metrics:
+    target: "docs/00-doc/baseline-metrics.yaml（第⑤步建立）"
+    version_example: "algorithm-metrics-v1.0"
+    scope: "F01~F04正式目标 + F05~F12候选目标（基线第41~52章）"
+  f07_risk_weights:
+    target: "config/algorithm/risk-v1.yaml（第⑨步）"
+    status: "ISSUE-001 OPEN：现AHP六因子合计1.00但缺human_activity，须按基线第32章实验协议确定，严禁发明数值"
+  f08_f09_scoring_weights:
+    owner: "06号算法专项 A08/A09（如调度打分 0.30·Distance+0.20·Battery+0.20·Capability+0.15·Availability+0.15·Communication）"
+    target: "config/algorithm/ 后续按需扩展"
+  protocol_rates:
+    owner: "05号协议文档（心跳5s/连续3次丢失判离线、UAV_STATE/TELEMETRY 1Hz、HEARTBEAT 0.2Hz、高并发5/10/20Hz）"
+  mock_simulator_params:
+    owner: "05号协议文档（电池仿真悬停0.6%/min、普巡1.0%、高速1.5%、重载+0.3%等）"
+  environment_resources:
+    owner: "10号部署与运维文档 V1.2 第82章（DEV/DEMO/TEST/PROD资源基线）"
+  demo_scenarios:
+    owner: "10号部署与运维文档 V1.2（Scenario-01~06）"

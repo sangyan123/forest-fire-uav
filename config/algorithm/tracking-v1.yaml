@@ -1,0 +1,24 @@
+# =====================================================================
+# F06 火势动态跟踪 — 算法运行时配置（tracking-v1.yaml）
+# =====================================================================
+# configVersion: tracking-config-v1.0
+# provenance:   06号算法专项 V1.1（A06）
+# 消费方:       ai-service（A06）、backend、08号测试
+# =====================================================================
+
+configVersion: tracking-config-v1.0
+status: PENDING_PARAMETERS   # F06运行参数（关联阈值/Kalman过程噪声/轨迹生命周期等）未冻结
+
+function: F06 火势动态跟踪（分割+几何关联+Kalman/Hungarian，06号A06）
+
+params: {}                   # 【禁止为了填满配置而发明数值】待06号实验确定后填入
+
+acceptance_targets:          # V1候选工程基线（正式指标经06/08转正）
+  source: docs/00-doc/baseline-metrics.yaml#metrics.F06
+  track_continuity_min: 0.85
+  id_switch_rate_max: 0.10
+  area_error_max_pct: 20
+
+notes:
+  - "算法结构基线：分割掩码+几何关联（弃BBox跟踪）+ Kalman/IoU/Hungarian（06号A06）。"
+  - "本文件参数段落地前，任何实现不得私自内嵌未评审参数。"

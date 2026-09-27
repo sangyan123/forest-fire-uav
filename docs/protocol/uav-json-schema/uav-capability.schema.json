@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forest-fire-uav.local/schemas/uav-capability.schema.json",
+  "title": "UAV_CAPABILITY",
+  "description": "能力消息（05号第8.2/34章）：载荷为capability子模型10个布尔位（静态信息，变化时上报）。能力位作为F09调度的能力匹配输入。",
+  "allOf": [
+    { "$ref": "defs.schema.json#/definitions/HeaderBase" },
+    {
+      "properties": {
+        "messageType": { "const": "UAV_CAPABILITY" },
+        "capability": { "$ref": "defs.schema.json#/definitions/Capability" }
+      },
+      "required": ["capability"]
+    }
+  ]
+}

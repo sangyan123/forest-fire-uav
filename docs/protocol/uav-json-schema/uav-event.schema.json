@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forest-fire-uav.local/schemas/uav-event.schema.json",
+  "title": "UAV_EVENT",
+  "description": "事件消息（05号第44~45章）： eventType 17值；severity对齐10号告警四级（INFO/WARNING/HIGH/CRITICAL）。LOW_BATTERY对应四级电量LOW_BATTERY_WARNING(30%)、CRITICAL_BATTERY对应CRITICAL(10%)。Topic: uav/{deviceId}/event。",
+  "allOf": [
+    { "$ref": "defs.schema.json#/definitions/HeaderBase" },
+    {
+      "properties": {
+        "messageType": { "const": "UAV_EVENT" },
+        "event": { "$ref": "defs.schema.json#/definitions/EventPayload" }
+      },
+      "required": ["event"]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+# =====================================================================
+# F04 火情二次核验 — 算法运行时配置（verification-v1.yaml）
+# =====================================================================
+# configVersion: verification-config-v1.0
+# provenance:   docs/00-doc/constants.yaml#verification（基线V1.3第34章冻结）
+# 消费方:       ai-service（A04）、backend、08号测试
+# 规则:         本文件镜像 constants.yaml，不得另创数值；参数变更必须先改
+#               基线并走第32章变更协议。
+# =====================================================================
+
+configVersion: verification-config-v1.0
+status: ACTIVE
+
+function: F04 火情二次核验（四证据加权，06号A04）
+
+weights:
+  rgb: 0.35
+  thermal: 0.35
+  temporal: 0.15
+  spatial: 0.15
+  # 校验和必须为1.00（RGB+Thermal+Temporal+Spatial）
+
+formula: "VerificationScore = 0.35×RGB + 0.35×Thermal + 0.15×Temporal + 0.15×Spatial"
+
+decision:
+  confirmed_min: 0.80        # Score >= 0.80 → CONFIRMED
+  false_alarm_below: 0.50    # Score < 0.50 → FALSE_ALARM；其余 → UNCERTAIN（需人工复核）
+
+outputs: [CONFIRMED, FALSE_ALARM, UNCERTAIN]   # 枚举见 docs/00-doc/enums.yaml#VerificationStatus

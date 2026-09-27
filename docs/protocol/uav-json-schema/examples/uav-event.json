@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "messageId": "EVENT-MSG-001",
+  "messageType": "UAV_EVENT",
+  "deviceId": "UAV-001",
+  "timestamp": "2026-09-27T10:06:00Z",
+  "source": "MOCK",
+  "sequence": 10235,
+  "event": {
+    "eventId": "EVENT-001",
+    "eventType": "LOW_BATTERY",
+    "severity": "HIGH",
+    "data": {
+      "battery": 18
+    }
+  }
+}

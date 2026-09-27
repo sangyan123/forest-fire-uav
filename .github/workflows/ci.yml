@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'fix/**', 'release/**']
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # -------------------------------------------------------------------
+  # 基线与机器来源校验（Phase 0 起即生效，不依赖业务代码）
+  # -------------------------------------------------------------------
+  baseline-validation:
+    name: 基线配置校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 校验基线 YAML（enums / constants / metrics / branch-policy / openapi / configs）
+        run: |
+          for f in docs/00-doc/enums.yaml \
+                   docs/00-doc/constants.yaml \
+                   docs/00-doc/baseline-metrics.yaml \
+                   docs/00-doc/branch-policy.yaml \
+                   docs/api/openapi.yaml \
+                   config/auth/auth-v1.yaml \
+                   config/algorithm/fire-detection-v1.yaml \
+                   config/algorithm/verification-v1.yaml \
+                   config/algorithm/tracking-v1.yaml \
+                   config/algorithm/uav-safety-v1.yaml \
+                   config/algorithm/risk-v1.yaml; do
+            npx --yes js-yaml "$f" > /dev/null && echo "✅ $f" || exit 1
+          done
+
+      - name: 校验 UAV JSON Schema（编译 + 示例）
+        run: |
+          npm install --prefix "$RUNNER_TEMP/ajv" ajv ajv-formats --silent
+          NODE_PATH="$RUNNER_TEMP/ajv/node_modules" node scripts/validate-uav-schemas.js
+
+  # -------------------------------------------------------------------
+  # Backend（Java 21 / Spring Boot 3）—— 代码落地后自动激活
+  # -------------------------------------------------------------------
+  backend:
+    name: Backend（backend）
+    runs-on: ubuntu-latest
+    needs: baseline-validation
+    if: ${{ hashFiles('backend/pom.xml') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - name: Lint + Test + Build
+        run: mvn -B verify --file backend/pom.xml
+
+  # -------------------------------------------------------------------
+  # AI Service（Python / FastAPI）—— 代码落地后自动激活
+  # -------------------------------------------------------------------
+  ai-service:
+    name: AI Service（ai-service）
+    runs-on: ubuntu-latest
+    needs: baseline-validation
+    if: ${{ hashFiles('ai-service/requirements.txt') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install
+        run: pip install -r ai-service/requirements.txt
+      - name: Lint + Test
+        run: |
+          ruff check ai-service
+          pytest ai-service
+
+  # -------------------------------------------------------------------
+  # Frontend（Vue 3 / TypeScript）—— 代码落地后自动激活
+  # -------------------------------------------------------------------
+  frontend:
+    name: Frontend（frontend）
+    runs-on: ubuntu-latest
+    needs: baseline-validation
+    if: ${{ hashFiles('frontend/package.json') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install + Lint + Test + Build
+        run: |
+          npm ci --prefix frontend
+          npm run lint --if-present --prefix frontend
+          npm test --if-present --prefix frontend
+          npm run build --prefix frontend
+
+  # -------------------------------------------------------------------
+  # Docker Build —— Dockerfile 落地后自动激活（基线第64章流水线第5步）
+  # -------------------------------------------------------------------
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: baseline-validation
+    if: ${{ hashFiles('**/Dockerfile') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 构建所有服务镜像
+        run: |
+          for d in backend ai-service uav-gateway mock-uav frontend; do
+            if [ -f "$d/Dockerfile" ]; then
+              docker build -t "forest-fire/$d:${{ github.sha }}" "$d"
+            fi
+          done

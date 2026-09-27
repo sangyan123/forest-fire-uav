@@ -1,0 +1,47 @@
+# =====================================================================
+# 分支保护与研发流程策略（branch-policy.yaml）
+# =====================================================================
+# policyVersion: branch-policy-v1.0
+# provenance:    基线V1.3第64~65章；11号《开发实施与项目启动文档》V2.1 第7章
+# 层次:          11号定义研发流程 → 本文件定义可执行策略 → GitHub Branch Ruleset 实际执行
+#                （基线第65章三层责任链）
+# =====================================================================
+
+policyVersion: branch-policy-v1.0
+status: ACTIVE
+
+enforcement:
+  machine_source: GitHub Branch Ruleset      # 实际执行载体
+  ci: GitHub Actions                         # 基线第64章V1选型
+
+branch_protection:
+  protected_branches:
+    - main
+  main_direct_push: false                    # main禁止直接Push
+  merge_requirements:
+    - Pull Request
+    - Review（至少1人）
+    - CI通过
+
+required_status_checks:                      # 与CI流水线各阶段一一对应
+  - lint
+  - unit-test
+  - build
+  - integration-test
+
+ci_pipeline:                                 # 基线第64章流水线
+  trigger: Push
+  stages: [Lint, Unit Test, Build, Docker Build, Integration Test, Artifact]
+  release_flow: "Develop → Test → Release → Production（10号V1.1第57章）"
+
+branch_model:                                # 11号V2.1 第7章分支模型
+  main: "生产可发布分支（受保护）"
+  develop: "集成开发分支"
+  "feature/*": "功能开发分支"
+  "fix/*": "缺陷修复分支"
+  "release/*": "发布分支"
+  commit_convention: "见11号V2.1 Commit规范"
+
+notes:
+  - "本文件只冻结基本规则（基线第65章：00号只冻结其基本规则）；流程细节归11号。"
+  - "Phase 0 初始化仓库时，本文件内容必须同步配置为 GitHub Branch Ruleset。"

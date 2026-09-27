@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0",
+  "messageId": "CMD-RESULT-001",
+  "messageType": "UAV_COMMAND_RESULT",
+  "deviceId": "UAV-001",
+  "timestamp": "2026-09-27T10:05:03Z",
+  "source": "MOCK",
+  "sequence": 10234,
+  "commandId": "CMD-001",
+  "status": "SUCCESS",
+  "result": {
+    "executionTimeMs": 2800
+  }
+}

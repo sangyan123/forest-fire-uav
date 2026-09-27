@@ -1,0 +1,42 @@
+# =====================================================================
+# F07 森林火险风险评估 — 算法运行时配置（risk-v1.yaml）
+# =====================================================================
+# configVersion: risk-config-v1.0
+# provenance:   06号算法专项 V1.1（A07，因子与权重语义 owner）
+# 消费方:       ai-service（A07）、backend（风险域）、08号测试
+# =====================================================================
+
+configVersion: risk-config-v1.0
+status: PENDING_ISSUE-001    # 权重未冻结：现AHP六因子合计1.00但缺human_activity（见change-log ISSUE-001）
+
+function: F07 森林火险风险评估（一期AHP加权，二期RF/XGBoost/LightGBM+SHAP）
+
+factors:                     # 因子集合（基线模板七因子；id与06号16.8节对齐）
+  - id: temperature
+    weight: null             # 【待06号V1冻结值——严禁为填满配置而发明数值】
+  - id: humidity
+    weight: null
+  - id: wind_speed
+    weight: null
+  - id: vegetation
+    weight: null
+  - id: terrain
+    weight: null
+  - id: historical_fire
+    weight: null
+  - id: human_activity
+    weight: null
+
+constraints:
+  weights_sum: 1.00          # 冻结时七因子权重必须归一
+  no_silent_merge: "Temperature/Humidity/WindSpeed不得合并为Weather（基线第31章，除非06文档+实验+评审共同批准）"
+
+candidate_baseline:          # 06号完成回写前的现状（change-log记录）
+  current_ahp: { historical_fire: 0.20, temperature: 0.20, humidity: 0.15, wind_speed: 0.15, vegetation: 0.15, terrain: 0.15 }
+  missing: human_activity
+
+acceptance_targets:          # V1候选工程基线
+  source: docs/00-doc/baseline-metrics.yaml#metrics.F07
+  auc_min: 0.80
+  high_risk_recall_min: 0.80
+  explainability_required: true

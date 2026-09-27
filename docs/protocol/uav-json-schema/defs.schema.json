@@ -1,0 +1,361 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forest-fire-uav.local/schemas/defs.schema.json",
+  "title": "UAV Unified Data — 公共定义（defs）",
+  "description": "语义 owner：05号《UAV模拟与统一数据协议文档》V1.2（基线V1.3第4章：UAV协议语义 owner=05，机器来源=本目录）。枚举值与 docs/00-doc/enums.yaml 逐字一致；数值参数见 docs/00-doc/constants.yaml，本文件不重复。",
+  "definitions": {
+    "Source": {
+      "type": "string",
+      "description": "数据来源（05号第7章 Header.source）",
+      "enum": ["MOCK", "DJI", "OTHER"]
+    },
+    "MessageType": {
+      "type": "string",
+      "description": "标准消息类型（05号第8章，10种）",
+      "enum": ["UAV_STATE", "UAV_HEARTBEAT", "UAV_TELEMETRY", "UAV_MEDIA", "UAV_CAPABILITY", "UAV_MISSION_STATE", "UAV_ENVIRONMENT", "UAV_EVENT", "UAV_COMMAND", "UAV_COMMAND_RESULT"]
+    },
+    "HeaderBase": {
+      "type": "object",
+      "description": "消息头（05号第6~7章，7字段全部必填）",
+      "required": ["schemaVersion", "messageId", "messageType", "deviceId", "timestamp", "source", "sequence"],
+      "properties": {
+        "schemaVersion": { "type": "string", "const": "1.0", "description": "数据协议版本（本Schema对应1.0）" },
+        "messageId": { "type": "string", "minLength": 1, "description": "消息唯一ID（全局唯一，服务端幂等依据）" },
+        "messageType": { "$ref": "#/definitions/MessageType" },
+        "deviceId": { "type": "string", "minLength": 1, "description": "UAV唯一ID", "examples": ["UAV-001"] },
+        "timestamp": { "type": "string", "format": "date-time", "description": "数据产生时间（ISO 8601 UTC）" },
+        "source": { "$ref": "#/definitions/Source" },
+        "sequence": { "type": "integer", "minimum": 0, "description": "消息序号（long）" }
+      }
+    },
+    "GpsStatus": {
+      "type": "string",
+      "description": "GPS状态（05号第18章）",
+      "enum": ["NO_SIGNAL", "2D_FIX", "3D_FIX"]
+    },
+    "RtkStatus": {
+      "type": "string",
+      "description": "RTK状态（05号第18章）",
+      "enum": ["NONE", "SINGLE", "FLOAT", "FIXED"]
+    },
+    "GimbalMode": {
+      "type": "string",
+      "description": "云台模式（05号第23章）",
+      "enum": ["FREE", "FOLLOW", "FPV", "LOCK", "TARGET"]
+    },
+    "FlightStatus": {
+      "type": "string",
+      "description": "飞行状态12值（05号第28章，与第52章Simulator状态机一致；对应enums.yaml#UAVStatus）",
+      "enum": ["INIT", "IDLE", "ARMED", "TAKEOFF", "FLYING", "MISSION_EXECUTING", "HOVERING", "PAUSED", "RETURNING", "LANDING", "LANDED", "EMERGENCY"]
+    },
+    "FlightMode": {
+      "type": "string",
+      "description": "飞行模式7值（05号第29章）；实际支持由Adapter+Capability决定",
+      "enum": ["MANUAL", "WAYLINE", "GOTO", "ORBIT", "HOVER", "RETURN_HOME", "AUTO_LAND"]
+    },
+    "MediaType": {
+      "type": "string",
+      "description": "媒体类型7值（enums.yaml#MediaType，owner=04号）；第一阶段仅启用RGB_IMAGE/THERMAL_IMAGE",
+      "enum": ["RGB_IMAGE", "THERMAL_IMAGE", "RGB_VIDEO", "THERMAL_VIDEO", "MULTISPECTRAL_IMAGE", "MULTISPECTRAL_VIDEO", "OTHER"]
+    },
+    "MissionType": {
+      "type": "string",
+      "description": "任务业务类型6值（enums.yaml#MissionType，owner=02号；本协议只引用）",
+      "enum": ["PATROL", "RISK_PATROL", "FIRE_VERIFICATION", "FIRE_TRACKING", "THERMAL_INSPECTION", "SUPPORT"]
+    },
+    "MissionStatus": {
+      "type": "string",
+      "description": "任务执行状态8值（enums.yaml#MissionStatus，owner=04号）",
+      "enum": ["CREATED", "PENDING", "APPROVED", "ASSIGNED", "EXECUTING", "COMPLETED", "FAILED", "CANCELLED"]
+    },
+    "DeviceCommandStatus": {
+      "type": "string",
+      "description": "设备侧命令状态9值（05号第42章，owner=05）。注意与平台侧CommandStatus（07/09号：CREATED/SENT/ACKNOWLEDGED/…）是两个层面，对应关系待归一（见change-log ISSUE-004）。",
+      "enum": ["RECEIVED", "VALIDATING", "ACCEPTED", "EXECUTING", "SUCCESS", "FAILED", "TIMEOUT", "REJECTED", "CANCELLED"]
+    },
+    "EventType": {
+      "type": "string",
+      "description": "UAV事件类型17值（05号第45章）。LOW_BATTERY对应四级电量LOW_BATTERY_WARNING(30%)，CRITICAL_BATTERY对应CRITICAL(10%)。",
+      "enum": ["TAKEOFF", "LAND", "MISSION_STARTED", "MISSION_COMPLETED", "MISSION_FAILED", "LOW_BATTERY", "CRITICAL_BATTERY", "GPS_LOST", "RTK_LOST", "RTK_RECOVERED", "COMMUNICATION_LOST", "COMMUNICATION_RECOVERED", "THERMAL_READY", "CAMERA_ERROR", "PAYLOAD_ERROR", "GEOFENCE_WARNING", "GEOFENCE_BREACH"]
+    },
+    "EventSeverity": {
+      "type": "string",
+      "description": "事件严重级别（对齐10号告警四级INFO/WARNING/HIGH/CRITICAL）",
+      "enum": ["INFO", "WARNING", "HIGH", "CRITICAL"]
+    },
+    "AltitudeMode": {
+      "type": "string",
+      "description": "目标点高度参考系（基线第39章）：TargetPoint.altitude必须与altitudeMode同时出现，禁止裸高度值",
+      "enum": ["ELLIPSOID", "RELATIVE_TO_TAKEOFF", "AGL"]
+    },
+    "CoreCommandType": {
+      "type": "string",
+      "description": "V1核心命令集9值（enums.yaml#CommandType，owner=05+09）；扩展命令11项见05号第40章，须经09号能力矩阵确认",
+      "enum": ["TAKEOFF", "LAND", "GOTO", "GIMBAL_LOOK_AT", "CAPTURE_RGB", "CAPTURE_THERMAL", "RETURN_HOME", "PAUSE", "RESUME"]
+    },
+    "Device": {
+      "type": "object",
+      "description": "设备子模型（05号第10~11章）",
+      "required": ["manufacturer", "model", "serialNumber"],
+      "properties": {
+        "manufacturer": { "type": "string", "examples": ["MOCK"] },
+        "model": { "type": "string", "examples": ["Forest-UAV-T1"] },
+        "serialNumber": { "type": "string", "examples": ["MOCK-001"] },
+        "firmwareVersion": { "type": "string", "examples": ["1.0.0"] },
+        "deviceType": { "type": "string", "examples": ["AIRCRAFT"] }
+      }
+    },
+    "Position": {
+      "type": "object",
+      "description": "位置子模型（05号第12~14章）。absoluteAltitude=相对参考椭球面；relativeAltitude=相对起飞点；groundElevation=地面高程。",
+      "required": ["latitude", "longitude"],
+      "properties": {
+        "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+        "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+        "absoluteAltitude": { "type": "number", "description": "m，椭球高" },
+        "relativeAltitude": { "type": "number", "description": "m，相对起飞点" },
+        "groundElevation": { "type": "number", "description": "m" },
+        "horizontalAccuracy": { "type": "number", "minimum": 0, "description": "m" },
+        "verticalAccuracy": { "type": "number", "minimum": 0, "description": "m" }
+      }
+    },
+    "Attitude": {
+      "type": "object",
+      "description": "姿态子模型（05号第15~16章）",
+      "properties": {
+        "heading": { "type": "number", "minimum": 0, "exclusiveMaximum": 360, "description": "degree，[0,360)" },
+        "pitch": { "type": "number", "description": "degree" },
+        "roll": { "type": "number", "description": "degree" }
+      }
+    },
+    "Velocity": {
+      "type": "object",
+      "description": "速度子模型（05号第17章），单位 m/s",
+      "properties": {
+        "horizontalSpeed": { "type": "number" },
+        "verticalSpeed": { "type": "number" },
+        "northSpeed": { "type": "number" },
+        "eastSpeed": { "type": "number" }
+      }
+    },
+    "Navigation": {
+      "type": "object",
+      "description": "导航子模型（05号第18章）",
+      "properties": {
+        "gpsSatellites": { "type": "integer", "minimum": 0 },
+        "rtkSatellites": { "type": "integer", "minimum": 0 },
+        "gpsStatus": { "$ref": "#/definitions/GpsStatus" },
+        "rtkStatus": { "$ref": "#/definitions/RtkStatus" },
+        "positionSource": { "type": "string", "examples": ["RTK"] }
+      }
+    },
+    "Battery": {
+      "type": "object",
+      "description": "电池子模型（05号第19~20章）。四级电量判定阈值见 constants.yaml#battery_thresholds。",
+      "required": ["percentage"],
+      "properties": {
+        "percentage": { "type": "integer", "minimum": 0, "maximum": 100, "description": "%" },
+        "voltage": { "type": "number", "description": "mV" },
+        "current": { "type": "number", "description": "mA" },
+        "temperature": { "type": "number", "description": "°C" },
+        "remainingFlightTime": { "type": "number", "description": "seconds" },
+        "returnHomeThreshold": { "type": "integer", "minimum": 0, "maximum": 100, "description": "%，对应RETURN_HOME(20%)" },
+        "landingThreshold": { "type": "integer", "minimum": 0, "maximum": 100, "description": "%，对应CRITICAL(10%)" }
+      }
+    },
+    "Gimbal": {
+      "type": "object",
+      "description": "云台子模型（05号第22~23章）",
+      "properties": {
+        "pitch": { "type": "number", "description": "degree" },
+        "roll": { "type": "number", "description": "degree" },
+        "yaw": { "type": "number", "description": "degree" },
+        "mode": { "$ref": "#/definitions/GimbalMode" }
+      }
+    },
+    "Payload": {
+      "type": "object",
+      "description": "负载子模型（05号第24章；第25/26章的相机标定字段为可选扩展）",
+      "properties": {
+        "rgb": {
+          "type": "object",
+          "properties": {
+            "available": { "type": "boolean" },
+            "status": { "type": "string", "examples": ["READY"] },
+            "resolution": { "type": "string", "examples": ["3840x2160"] },
+            "fovHorizontal": { "type": "number", "examples": [72.0] },
+            "fovVertical": { "type": "number", "examples": [44.0] },
+            "focalLength": { "type": "number", "examples": [24.0] }
+          }
+        },
+        "thermal": {
+          "type": "object",
+          "properties": {
+            "available": { "type": "boolean" },
+            "status": { "type": "string", "examples": ["READY"] },
+            "resolution": { "type": "string", "examples": ["1280x1024"] },
+            "fovHorizontal": { "type": "number", "examples": [45.0] },
+            "temperatureRange": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": { "type": "number" },
+              "examples": [[-20, 150]]
+            }
+          }
+        },
+        "zoom": {
+          "type": "object",
+          "properties": {
+            "available": { "type": "boolean" },
+            "maxZoom": { "type": "number", "examples": [20] }
+          }
+        }
+      }
+    },
+    "Flight": {
+      "type": "object",
+      "description": "飞行子模型（05号第27~29章）",
+      "required": ["status"],
+      "properties": {
+        "status": { "$ref": "#/definitions/FlightStatus" },
+        "mode": { "$ref": "#/definitions/FlightMode" },
+        "missionId": { "type": ["string", "null"] },
+        "armed": { "type": "boolean" }
+      }
+    },
+    "Home": {
+      "type": "object",
+      "description": "Home点子模型（05号第30章）",
+      "properties": {
+        "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+        "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+        "altitude": { "type": "number" },
+        "distance": { "type": "number", "minimum": 0, "description": "m，距Home点距离" }
+      }
+    },
+    "Link": {
+      "type": "object",
+      "description": "链路子模型（05号第31章）",
+      "properties": {
+        "connected": { "type": "boolean" },
+        "latencyMs": { "type": "number", "minimum": 0 },
+        "signalStrength": { "type": "number", "minimum": 0, "maximum": 100 },
+        "networkType": { "type": "string", "examples": ["4G"] }
+      }
+    },
+    "Environment": {
+      "type": "object",
+      "description": "环境子模型（05号第33章）。注意 environment.windSpeed（气象）≠ 无人机姿态估算风速 uav_estimated_wind，两字段绝对不混。",
+      "required": ["temperature"],
+      "properties": {
+        "temperature": { "type": "number", "description": "°C" },
+        "humidity": { "type": "number", "description": "%" },
+        "windSpeed": { "type": "number", "description": "m/s，气象风" },
+        "windDirection": { "type": "number", "description": "degree" },
+        "source": { "type": "string", "examples": ["WEATHER_STATION"] }
+      }
+    },
+    "Capability": {
+      "type": "object",
+      "description": "能力子模型（05号第34章，10个布尔位）",
+      "required": ["rgb", "thermal"],
+      "properties": {
+        "rgb": { "type": "boolean" },
+        "thermal": { "type": "boolean" },
+        "zoom": { "type": "boolean" },
+        "gimbalLookAt": { "type": "boolean" },
+        "wayline": { "type": "boolean" },
+        "liveStream": { "type": "boolean" },
+        "photo": { "type": "boolean" },
+        "video": { "type": "boolean" },
+        "rtk": { "type": "boolean" },
+        "returnHome": { "type": "boolean" }
+      }
+    },
+    "TargetPoint": {
+      "type": "object",
+      "description": "目标点（05号第39章）：altitude必须与altitudeMode同时出现，禁止裸高度值",
+      "required": ["latitude", "longitude", "altitude", "altitudeMode"],
+      "properties": {
+        "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+        "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+        "altitude": { "type": "number" },
+        "altitudeMode": { "$ref": "#/definitions/AltitudeMode" }
+      }
+    },
+    "MediaPayload": {
+      "type": "object",
+      "description": "UAV_MEDIA载荷（05号第37~38章）",
+      "required": ["mediaId", "type", "url"],
+      "properties": {
+        "mediaId": { "type": "string" },
+        "type": { "$ref": "#/definitions/MediaType" },
+        "url": { "type": "string", "description": "对象存储地址（MinIO/S3，经预签名URL访问）" },
+        "width": { "type": "integer", "minimum": 0 },
+        "height": { "type": "integer", "minimum": 0 },
+        "format": { "type": "string", "examples": ["JPEG"] },
+        "size": { "type": "integer", "minimum": 0 },
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "position": {
+          "type": "object",
+          "properties": {
+            "latitude": { "type": "number" },
+            "longitude": { "type": "number" },
+            "altitude": { "type": "number" }
+          }
+        },
+        "camera": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "examples": ["RGB"] },
+            "fovHorizontal": { "type": "number" },
+            "fovVertical": { "type": "number" },
+            "zoom": { "type": "number" }
+          }
+        },
+        "gimbal": {
+          "type": "object",
+          "properties": {
+            "pitch": { "type": "number" },
+            "yaw": { "type": "number" }
+          }
+        },
+        "thermal": {
+          "type": "object",
+          "description": "热红外统计（05号第38章）",
+          "properties": {
+            "minTemperature": { "type": "number", "description": "°C" },
+            "maxTemperature": { "type": "number", "description": "°C" },
+            "meanTemperature": { "type": "number", "description": "°C" },
+            "unit": { "type": "string", "examples": ["CELSIUS"] }
+          }
+        }
+      }
+    },
+    "MissionPayload": {
+      "type": "object",
+      "description": "UAV_MISSION_STATE载荷（05号第43章）",
+      "required": ["missionId", "missionType", "status"],
+      "properties": {
+        "missionId": { "type": "string" },
+        "missionType": { "$ref": "#/definitions/MissionType" },
+        "status": { "$ref": "#/definitions/MissionStatus" },
+        "progress": { "type": "integer", "minimum": 0, "maximum": 100, "description": "%" },
+        "currentWaypoint": { "type": "integer", "minimum": 0 },
+        "totalWaypoints": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "EventPayload": {
+      "type": "object",
+      "description": "UAV_EVENT载荷（05号第44~45章）",
+      "required": ["eventId", "eventType", "severity"],
+      "properties": {
+        "eventId": { "type": "string" },
+        "eventType": { "$ref": "#/definitions/EventType" },
+        "severity": { "$ref": "#/definitions/EventSeverity" },
+        "data": { "type": "object", "additionalProperties": true, "description": "事件附加数据（如LOW_BATTERY附battery值）" }
+      }
+    }
+  }
+}

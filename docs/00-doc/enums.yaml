@@ -1,0 +1,407 @@
+# =====================================================================
+# 森林防火无人机智能系统 — 枚举唯一来源（enums.yaml）
+# =====================================================================
+# 归属:   00号基线 V1.3 第5章（docs/00-doc/ 机器可执行来源）与第70章
+# 版本:   enums-v1.0
+# 日期:   2026-09-27
+#
+# 规则（基线第76章）:
+#   1. 一个枚举只有一个主定义文档（owner），本文件是所有枚举的唯一
+#      机器可执行来源；
+#   2. 其他文档（01~11）与代码只能引用本文件，不得另行定义同名但
+#      不同值的枚举；
+#   3. 枚举变更必须走基线第71章流程：修改主定义 → 更新本文件 →
+#      同步引用文档 → 更新代码 → 更新测试 → 关闭Issue。
+#
+# 说明:
+#   - values 内的枚举字面量是冻结值，逐字来源于 owner 文档；
+#   - 涉及数值阈值（电量/评分/去重）的一律不在此处写数字，数值唯一
+#     基线见 constants.yaml（第④步建立）与基线V1.3对应章节；
+#   - 03/07/08/09/11 等引用方文档中出现的枚举必须能在本文件找到。
+# =====================================================================
+
+meta:
+  file_version: enums-v1.0
+  baseline: "00 跨文档设计基线与矛盾修订清单 V1.3（docs/00-doc/active/00_跨文档设计基线_V1.3.md）"
+  created: 2026-09-27
+  owner_of_this_file: "00号基线（治理方）；各枚举语义归各 owner 文档"
+  consumers:
+    - "01~11号设计文档（引用）"
+    - "backend / ai-service / uav-gateway / mock-uav / frontend（生成或校验）"
+    - "openapi.yaml / uav-json-schema / DB Migration / Test Config（生成）"
+
+enums:
+
+  # -------------------------------------------------------------------
+  # 1. MissionType 任务业务类型
+  # -------------------------------------------------------------------
+  MissionType:
+    owner: "02 总体开发技术文档（V2.2 第19章）"
+    source: "基线V1.3 第24~26章"
+    description: "无人机任务的业务目的。与 CommandType 严格分离：MissionType=业务目标，CommandType=底层动作。"
+    values:
+      - name: PATROL
+        desc: "日常巡检"
+      - name: RISK_PATROL
+        desc: "风险区域重点巡检"
+      - name: FIRE_VERIFICATION
+        desc: "火情二次核验（可包含 GOTO / GIMBAL_LOOK_AT / CAPTURE_RGB / CAPTURE_THERMAL 等命令）"
+      - name: FIRE_TRACKING
+        desc: "火势动态跟踪"
+      - name: THERMAL_INSPECTION
+        desc: "热成像专项巡查"
+      - name: SUPPORT
+        desc: "支援类任务"
+    transitions: null
+    notes:
+      - "F12 多机协同的 RECON / VERIFY / TRACK 属 Multi-UAV Task Role，不是 MissionType，不得进入本枚举。"
+      - "Task Role 映射（基线第26章）: RECON→PATROL（普通巡检来源）或 RISK_PATROL（风险区域来源）；VERIFY→FIRE_VERIFICATION；TRACK→FIRE_TRACKING。"
+    consumers: ["doc-03", "doc-07", "doc-08", "doc-09", "doc-11", "backend", "api", "db", "test"]
+
+  # -------------------------------------------------------------------
+  # 2. CommandType 无人机底层命令
+  # -------------------------------------------------------------------
+  CommandType:
+    owner: "05 UAV统一协议（V1.2 第40章）+ 09 UAV厂商接入（V1.1 第4章）"
+    source: "基线V1.3 第28~29章；九项核心命令集"
+    description: "可直接下发给无人机的底层动作。语义由 05+09 共同定义。"
+    values:
+      - name: TAKEOFF
+        desc: "起飞"
+        permission: "uav:command"
+      - name: LAND
+        desc: "降落"
+      - name: GOTO
+        desc: "飞往目标点（TargetPoint 必须同时携带 altitude 与 altitudeMode：ELLIPSOID / RELATIVE_TO_TAKEOFF / AGL）"
+        permission: "uav:command"
+      - name: GIMBAL_LOOK_AT
+        desc: "云台指向目标点"
+      - name: CAPTURE_RGB
+        desc: "拍摄可见光媒体"
+      - name: CAPTURE_THERMAL
+        desc: "拍摄热红外媒体"
+      - name: RETURN_HOME
+        desc: "返航"
+        permission: "uav:command"
+      - name: PAUSE
+        desc: "暂停当前任务/动作"
+        permission: "uav:command"
+      - name: RESUME
+        desc: "恢复暂停的任务/动作"
+        permission: "uav:command"
+    transitions: "见 CommandStatus（命令执行状态机）"
+    notes:
+      - "PATROL 是 MissionType，不是命令（基线第28章）。"
+      - "05号第40章的扩展命令（HOVER/ZOOM/TAKE_PHOTO 等11项）不在本核心集，须经 09号能力矩阵确认后另行评审加入。"
+      - "permission 标注依据基线第59章；所有控制行为必须写入 AuditLog。"
+    consumers: ["doc-05", "doc-07", "doc-08", "doc-09", "backend", "uav-gateway", "mock-uav", "api", "db", "test"]
+
+  # -------------------------------------------------------------------
+  # 3. MediaType 媒体类型
+  # -------------------------------------------------------------------
+  MediaType:
+    owner: "04 数据库设计文档（V1.2，media_file.media_type）"
+    source: "冻结值继承自已归档的00基线V1.0第20章，经基线V1.3第73章对04号回写生效"
+    description: "无人机采集媒体的可执行类型。"
+    values:
+      - name: RGB_IMAGE
+        desc: "可见光图像"
+        phase1_enabled: true
+      - name: THERMAL_IMAGE
+        desc: "热红外图像"
+        phase1_enabled: true
+      - name: RGB_VIDEO
+        desc: "可见光视频（保留，不进入第一版核心闭环）"
+        phase1_enabled: false
+      - name: THERMAL_VIDEO
+        desc: "热红外视频（保留，不进入第一版核心闭环）"
+        phase1_enabled: false
+      - name: MULTISPECTRAL_IMAGE
+        desc: "多光谱图像（保留）"
+        phase1_enabled: false
+      - name: MULTISPECTRAL_VIDEO
+        desc: "多光谱视频（保留）"
+        phase1_enabled: false
+      - name: OTHER
+        desc: "其他类型"
+        phase1_enabled: false
+    transitions: null
+    consumers: ["doc-04", "doc-05", "doc-07", "doc-08", "backend", "api", "db"]
+
+  # -------------------------------------------------------------------
+  # 4. IncidentStatus 火情事件状态
+  # -------------------------------------------------------------------
+  IncidentStatus:
+    owner: "01 业务需求（V1.1 第9章，业务语义）/ 04 数据库（V1.2 第31章，状态链）/ 07 API（V1.2 第12章，接口语义）"
+    source: "基线V1.3 继承冻结；三份文档当前口径一致"
+    description: "FireIncident 记录的生命周期状态。"
+    values:
+      - name: SUSPECTED
+        desc: "疑似火情（F01/F02 检测产生）"
+      - name: VERIFYING
+        desc: "核验中（F04 进行中）"
+      - name: CONFIRMED
+        desc: "已确认火情"
+      - name: FALSE_ALARM
+        desc: "误报（终态）"
+      - name: TRACKING
+        desc: "火势跟踪中（F06）"
+      - name: PROCESSING
+        desc: "处置中"
+      - name: RESOLVED
+        desc: "已处置"
+      - name: CLOSED
+        desc: "已关闭（终态）"
+    transitions:
+      main_line: "SUSPECTED → VERIFYING → CONFIRMED → TRACKING → PROCESSING → RESOLVED → CLOSED"
+      false_alarm: "VERIFYING → FALSE_ALARM（终态）"
+    notes:
+      - "01号第9章的 NORMAL 是业务层状态（表示'当前无火情'），不属于 Incident 记录状态：业务在 FALSE_ALARM 或 CLOSED 后回归 NORMAL。"
+      - "火情确认不能只由 F01 决定，必须经 F04 核验（基线第33章）。"
+    consumers: ["doc-01", "doc-03", "doc-04", "doc-07", "doc-08", "backend", "api", "db", "frontend"]
+
+  # -------------------------------------------------------------------
+  # 5. VerificationStatus 核验结论
+  # -------------------------------------------------------------------
+  VerificationStatus:
+    owner: "03 功能详细设计（V1.1 第12.3节）/ 06 算法专项（V1.1 第13.2节）"
+    source: "基线V1.3 第34章"
+    description: "F04 火情二次核验的输出结论。与 IncidentStatus 是两个不同枚举：本枚举是核验结果，IncidentStatus 是事件生命周期。"
+    values:
+      - name: CONFIRMED
+        desc: "确认火情"
+      - name: FALSE_ALARM
+        desc: "误报"
+      - name: UNCERTAIN
+        desc: "不确定（需人工复核）"
+    transitions: null
+    notes:
+      - "判定阈值（VerificationScore ≥0.80→CONFIRMED、<0.50→FALSE_ALARM、其余→UNCERTAIN）为参数，唯一数值基线见基线第34章与 constants.yaml verification 段，本文件不重复数值。"
+    consumers: ["doc-03", "doc-06", "doc-07", "doc-08", "ai-service", "backend", "db"]
+
+  # -------------------------------------------------------------------
+  # 6. UAVStatus 无人机飞行状态
+  # -------------------------------------------------------------------
+  UAVStatus:
+    owner: "05 UAV统一协议（V1.2 第28章 flight.status / 第52章状态机）"
+    source: "基线V1.3 继承；状态机与枚举已于补充修订中对齐"
+    description: "协议层 flight.status 飞行状态（对应 05号第52章 Simulator 状态机）。与 09号的 DeviceStatus（设备级连接/运行状态）是两个层面。"
+    values:
+      - name: INIT
+        desc: "上电初始化"
+      - name: IDLE
+        desc: "空闲待命"
+      - name: ARMED
+        desc: "已解锁（电机待命）"
+      - name: TAKEOFF
+        desc: "起飞中"
+      - name: FLYING
+        desc: "飞行中"
+      - name: MISSION_EXECUTING
+        desc: "任务执行中"
+      - name: HOVERING
+        desc: "悬停"
+      - name: PAUSED
+        desc: "暂停（对应 PAUSE/RESUME 命令）"
+      - name: RETURNING
+        desc: "返航中"
+      - name: LANDING
+        desc: "降落中"
+      - name: LANDED
+        desc: "已降落"
+      - name: EMERGENCY
+        desc: "紧急状态（事件触发分支）"
+    transitions:
+      main_line: "INIT → IDLE → ARMED → TAKEOFF → FLYING → MISSION_EXECUTING → HOVERING → RETURNING → LANDING → LANDED"
+      branches: "PAUSED（PAUSE/RESUME 命令切换）；EMERGENCY（CRITICAL_BATTERY / COMMUNICATION_LOST 等事件触发，见05号第45章事件）"
+    notes:
+      - "LOW_BATTERY / CRITICAL_BATTERY / COMMUNICATION_LOST 是 UAV_EVENT 事件类型，不是本枚举的状态值。"
+    consumers: ["doc-05", "doc-07", "doc-08", "doc-09", "uav-gateway", "mock-uav", "backend", "db", "frontend"]
+
+  # -------------------------------------------------------------------
+  # 7. DeviceStatus 设备级状态（厂商适配层）
+  # -------------------------------------------------------------------
+  DeviceStatus:
+    owner: "09 UAV厂商接入（V1.1 第23章）"
+    source: "基线V1.3 继承；对应 04号 uav_device.device_status 字段"
+    description: "设备级连接与运行状态（Adapter 层视角）。与 05号 UAVStatus（协议层飞行状态）并行存在，字段命名必须区分：device_status vs flight.status。"
+    values:
+      - name: OFFLINE
+        desc: "离线"
+      - name: CONNECTING
+        desc: "连接中"
+      - name: ONLINE
+        desc: "在线"
+      - name: IDLE
+        desc: "空闲"
+      - name: TAKEOFF
+        desc: "起飞"
+      - name: AIRBORNE
+        desc: "空中"
+      - name: MISSION_EXECUTING
+        desc: "任务执行中"
+      - name: RETURNING
+        desc: "返航中"
+      - name: LANDING
+        desc: "降落中"
+      - name: ERROR
+        desc: "错误"
+    transitions: "OFFLINE → CONNECTING → ONLINE → IDLE → TAKEOFF → AIRBORNE → MISSION_EXECUTING → RETURNING → LANDING（ERROR 为异常分支）"
+    consumers: ["doc-04", "doc-09", "uav-gateway", "backend", "db"]
+
+  # -------------------------------------------------------------------
+  # 8. MissionStatus 任务执行状态
+  # -------------------------------------------------------------------
+  MissionStatus:
+    owner: "04 数据库设计文档（V1.2，mission.status）"
+    source: "04号第31章后 Mission Status 清单"
+    description: "Mission 记录的执行生命周期。"
+    values:
+      - name: CREATED
+        desc: "已创建"
+      - name: PENDING
+        desc: "待处理"
+      - name: APPROVED
+        desc: "已审批"
+      - name: ASSIGNED
+        desc: "已分配（F09 调度完成）"
+      - name: EXECUTING
+        desc: "执行中"
+      - name: COMPLETED
+        desc: "已完成（终态）"
+      - name: FAILED
+        desc: "失败（终态）"
+      - name: CANCELLED
+        desc: "已取消（终态）"
+    transitions: "CREATED → PENDING → APPROVED → ASSIGNED → EXECUTING → COMPLETED | FAILED | CANCELLED"
+    consumers: ["doc-04", "doc-07", "doc-11", "backend", "api", "db", "frontend"]
+
+  # -------------------------------------------------------------------
+  # 9. CommandStatus 命令执行状态
+  # -------------------------------------------------------------------
+  CommandStatus:
+    owner: "07 API（V1.2 第18章）/ 09 UAV厂商接入（V1.1）"
+    source: "命令状态机（两文档口径一致）"
+    description: "UAV Command 的执行状态机。"
+    values:
+      - name: CREATED
+        desc: "已创建"
+      - name: SENT
+        desc: "已下发"
+      - name: ACKNOWLEDGED
+        desc: "已应答"
+      - name: EXECUTING
+        desc: "执行中"
+      - name: SUCCESS
+        desc: "成功（终态）"
+      - name: TIMEOUT
+        desc: "超时（异常终态）"
+      - name: FAILED
+        desc: "失败（异常终态）"
+      - name: INTERRUPTED
+        desc: "被打断（异常终态）"
+    transitions:
+      main_line: "CREATED → SENT → ACKNOWLEDGED → EXECUTING → SUCCESS"
+      exceptions: "任一中间态可进入 TIMEOUT / FAILED / INTERRUPTED"
+    notes:
+      - "executeMission 的任务结果经命令/事件通道异步回传，与本状态机一致（09号第4章）。"
+      - "本枚举是平台侧命令记录状态（REST uav-command）；MQTT UAV_COMMAND_RESULT.status 使用设备侧 DeviceCommandStatus（05号第42章），两套状态并存，归一见 change-log ISSUE-004。"
+    consumers: ["doc-07", "doc-08", "doc-09", "backend", "db"]
+
+  # -------------------------------------------------------------------
+  # 9b. DeviceCommandStatus 设备侧命令状态
+  # -------------------------------------------------------------------
+  DeviceCommandStatus:
+    owner: "05 UAV统一协议（V1.2 第42章）"
+    source: "05号第41~42章：UAV_COMMAND_RESULT.status"
+    description: "设备侧（无人机/Adapter）上报的命令执行状态，用于 MQTT UAV_COMMAND_RESULT 消息。与平台侧 CommandStatus 是两个层面：本枚举描述设备视角，CommandStatus 描述平台命令记录视角。"
+    values:
+      - name: RECEIVED
+        desc: "设备已接收"
+      - name: VALIDATING
+        desc: "设备校验中"
+      - name: ACCEPTED
+        desc: "设备已接受待执行"
+      - name: EXECUTING
+        desc: "执行中"
+      - name: SUCCESS
+        desc: "成功（终态）"
+      - name: FAILED
+        desc: "失败（异常终态）"
+      - name: TIMEOUT
+        desc: "超时（异常终态）"
+      - name: REJECTED
+        desc: "设备拒绝（异常终态）"
+      - name: CANCELLED
+        desc: "已取消（终态）"
+    transitions: "RECEIVED → VALIDATING → ACCEPTED → EXECUTING → SUCCESS；异常分支 FAILED / TIMEOUT / REJECTED / CANCELLED"
+    notes:
+      - "与平台侧 CommandStatus（CREATED/SENT/ACKNOWLEDGED/…）的映射关系待归一，见 change-log ISSUE-004。"
+    consumers: ["doc-05", "uav-gateway", "mock-uav", "uav-json-schema", "backend"]
+
+  # -------------------------------------------------------------------
+  # 10. LocationMethod 火点定位方法
+  # -------------------------------------------------------------------
+  LocationMethod:
+    owner: "03 功能详细设计（F03）/ 06 算法专项（A03）；语义归 05/06"
+    source: "基线V1.3 第40章"
+    description: "火点定位（fire_point.location_method）采用的方法。禁止再出现 CAMERA_RAY / RAY_INTERSECTION / RAY_GROUND 等同义别名。"
+    values:
+      - name: RAY_GROUND_INTERSECTION
+        desc: "射线-地面交会（Phase 1 主用）"
+      - name: DEM_RAY_INTERSECTION
+        desc: "射线-DEM交会（二期高精度）"
+      - name: RTK_GEOREFERENCED
+        desc: "RTK 直接地理配准"
+      - name: DIRECT_GEOREFERENCED
+        desc: "直接地理配准（相机姿态）"
+      - name: MANUAL
+        desc: "人工标注"
+    transitions: null
+    consumers: ["doc-03", "doc-04", "doc-05", "doc-06", "doc-07", "ai-service", "backend", "db"]
+
+  # -------------------------------------------------------------------
+  # 11. BatteryState 电量状态
+  # -------------------------------------------------------------------
+  BatteryState:
+    owner: "05 UAV统一协议（V1.2）/ 基线第36章"
+    source: "基线V1.3 第36章四级电量基线"
+    description: "系统软件电量状态基线（四级+正常态）。注意：UAV_EVENT 中的 LOW_BATTERY / CRITICAL_BATTERY 是事件类型，分别映射到本枚举的 LOW_BATTERY_WARNING 与 CRITICAL。"
+    values:
+      - name: NORMAL
+        desc: "正常（电量高于预警阈值）"
+      - name: LOW_BATTERY_WARNING
+        desc: "低电预警"
+      - name: NO_NEW_MISSION
+        desc: "不再接受新任务"
+      - name: RETURN_HOME
+        desc: "优先返航/结束当前任务"
+      - name: CRITICAL
+        desc: "危急（紧急降落）"
+    transitions: "随电量下降单调：NORMAL → LOW_BATTERY_WARNING → NO_NEW_MISSION → RETURN_HOME → CRITICAL（阈值 30%/25%/20%/10% 的数值唯一基线见基线第36章与 constants.yaml battery_thresholds 段）"
+    notes:
+      - "真实设备可使用 Vendor Safety Profile 覆盖软件基线（09号第25章），覆盖值必须记录并审计。"
+      - "Mock UAV 电池仿真与 Scenario 07 已对齐该四级基线（05号V1.2）。"
+    consumers: ["doc-04", "doc-05", "doc-08", "doc-09", "backend", "uav-gateway", "mock-uav", "db"]
+
+  # -------------------------------------------------------------------
+  # 12. AlgorithmTaskStatus 算法任务状态
+  # -------------------------------------------------------------------
+  AlgorithmTaskStatus:
+    owner: "04 数据库设计文档（V1.2，algorithm_task.status）"
+    source: "由 04号 algorithm_task 表字段（status/started_at/completed_at/error_message）与 06号第37章异常处理推导"
+    description: "算法任务（AlgorithmTask）的执行状态。"
+    status: "CANDIDATE — 全部枚举中唯一无显式文档值集的一个；本值集为按表结构与06号异常处理推导的V1候选，待04号下一次修订正式冻结"
+    values:
+      - name: PENDING
+        desc: "已创建未开始（started_at 为空）"
+      - name: RUNNING
+        desc: "推理执行中"
+      - name: SUCCEEDED
+        desc: "成功（completed_at 已写、无错误）"
+      - name: FAILED
+        desc: "失败（error_message 已写；06号第37章：模型加载失败/GPU异常/输入损坏/图片缺失/模型超时等统一归入 FAILED，不单设 TIMEOUT）"
+    transitions: "PENDING → RUNNING → SUCCEEDED | FAILED"
+    notes:
+      - "每个 AlgorithmTask 记录 modelVersion + configVersion + datasetVersion 三件套（04号V1.2 第13.3节）。"
+    consumers: ["doc-03", "doc-04", "doc-06", "ai-service", "backend", "db"]

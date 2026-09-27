@@ -1,0 +1,35 @@
+# =====================================================================
+# UAV 安全软件基线 — 运行时配置（uav-safety-v1.yaml）
+# =====================================================================
+# configVersion: uav-safety-config-v1.0
+# provenance:   docs/00-doc/constants.yaml#battery_thresholds（基线V1.3第36章冻结）
+# 消费方:       backend（调度/任务守卫）、uav-gateway、mock-uav、09号Vendor Safety Profile
+# =====================================================================
+
+configVersion: uav-safety-config-v1.0
+status: ACTIVE
+
+battery_thresholds:          # 枚举见 docs/00-doc/enums.yaml#BatteryState
+  unit: percent_remaining
+  low_battery_warning_pct: 30    # 触发 UAV_EVENT.LOW_BATTERY
+  no_new_mission_pct: 25         # 不再接受新任务
+  return_home_pct: 20            # 优先返航/结束当前任务
+  critical_pct: 10               # 紧急降落；触发 UAV_EVENT.CRITICAL_BATTERY
+
+ranges:
+  NORMAL:              "remaining >= 30%"
+  LOW_BATTERY_WARNING: "25% <= remaining < 30%"
+  NO_NEW_MISSION:      "20% <= remaining < 25%"
+  RETURN_HOME:         "10% <= remaining < 20%"
+  CRITICAL:            "remaining < 10%"
+
+vendor_safety_profile:
+  override_allowed: true
+  rules:
+    - "覆盖值必须记录并审计（09号第25章）。"
+    - "不替代飞控/电池厂商自身失效保护。"
+    - "真实设备接入（Phase 9A）时按机型定义。"
+
+command_safety:
+  control_commands: [TAKEOFF, GOTO, RETURN_HOME, PAUSE, RESUME]
+  required_permission: "uav:command"     # 基线第59章；全部控制行为写入AuditLog

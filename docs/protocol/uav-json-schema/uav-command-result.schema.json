@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://forest-fire-uav.local/schemas/uav-command-result.schema.json",
+  "title": "UAV_COMMAND_RESULT",
+  "description": "命令结果消息（05号第41~42章）：status为设备侧命令状态9值（DeviceCommandStatus，owner=05号第42章）。注意与平台侧命令状态机（07/09号CommandStatus：CREATED→SENT→ACKNOWLEDGED→…）是两个层面，对应关系见change-log ISSUE-004。Topic: uav/{deviceId}/command/result。",
+  "allOf": [
+    { "$ref": "defs.schema.json#/definitions/HeaderBase" },
+    {
+      "properties": {
+        "messageType": { "const": "UAV_COMMAND_RESULT" },
+        "commandId": { "type": "string", "minLength": 1, "examples": ["CMD-001"] },
+        "status": { "$ref": "defs.schema.json#/definitions/DeviceCommandStatus" },
+        "result": {
+          "type": "object",
+          "description": "执行结果附加信息（如executionTimeMs）",
+          "additionalProperties": true
+        }
+      },
+      "required": ["commandId", "status"]
+    }
+  ]
+}

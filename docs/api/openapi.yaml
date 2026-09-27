@@ -1,0 +1,1390 @@
+# =====================================================================
+# 森林防火无人机智能系统 — OpenAPI 机器可执行规范（openapi.yaml）
+# =====================================================================
+# 语义来源:  07号《API与接口协议文档》V1.2（基线第4章：API语义 owner=07）
+# 归属:      00号基线 V1.3 第5章 / 第74章
+# 版本:      openapi-v1.0
+# 日期:      2026-09-27
+#
+# 规则:
+#   1. 本文件与 07号文档、后端实现必须保持同步（07号第4章）；
+#      不允许直接修改已上线接口语义，字段新增遵循向后兼容（07号第32章）；
+#   2. 所有枚举唯一来源为 docs/00-doc/enums.yaml，本文件枚举值与其逐字一致；
+#   3. 数值参数（电量阈值/核验决策线等）唯一来源 docs/00-doc/constants.yaml，
+#      本文件不重复数值；
+#   4. 07号未给出请求体字段的端点，body 采用宽松 schema 并标注
+#      "字段以主定义文档为准"，不擅自发明契约。
+# =====================================================================
+openapi: 3.0.3
+
+info:
+  title: 森林防火无人机智能系统 API
+  version: 1.0.0
+  description: |
+    统一 REST 接口规范（第一阶段：REST + MQTT + WebSocket，07号第3章）。
+
+    **通用约定（07号第4~7章）**
+    - 统一前缀 `/api/v1`；AI 服务接口前缀 `/ai/v1`（Backend↔AI Service 内部调用）。
+    - 通用请求头：`Authorization: Bearer {token}`、`Content-Type: application/json`、
+      `X-Request-Id: {uuid}`、`X-Client-Version: {version}`；内部服务调用增加
+      `X-Service-Name` / `X-Service-Version`。
+    - 统一响应包裹：`{code, message, data, requestId}`；`code=0` 成功，
+      错误码清单见 `components.schemas.ApiCode`（40002=业务引用数据不存在，
+      40401=REST路径资源不存在，判定规则"先判路径、再判业务引用"）。
+
+    **WebSocket 实时订阅（07号第29章，非本 REST 规范范围）**
+    - 端点：`/ws/uav`、`/ws/fire`、`/ws/mission`、`/ws/alert`。
+    - 事件示例：fire.created / fire.confirmed / fire.updated / uav.online /
+      uav.offline / uav.position.updated / mission.created / mission.started /
+      mission.completed / mission.failed。
+
+    **MQTT 统一主题（07号第24章，语义 owner=05号协议文档）**
+    - `uav/{deviceId}/state` `/telemetry` `/media` `/event` `/mission`
+      `/command` `/command/result`。
+    - 所有消息必含 messageId / timestamp / deviceId / requestId，服务端幂等处理。
+
+    **核心闭环接口链（07号第34章，第一阶段实现核心）**
+    UAV_MEDIA → POST /ai/v1/detection → FireDetection → POST /ai/v1/localization
+    → FirePoint → FireIncident → POST /api/v1/missions → POST /api/v1/dispatch
+    → POST /api/v1/uavs/{id}/commands → UAV_COMMAND → UAV_COMMAND_RESULT
+    → UAV_MEDIA → Verification
+
+    **API设计原则（07号第33章）**：前端不得直调厂商接口；AI不得直接控制无人机；
+    AI返回算法结果而非业务事件；Backend负责业务状态机；Gateway负责设备通信；
+    Adapter负责厂商差异；关键链路可追踪。
+
+    **部署端口参考（10号 V1.2）**：Backend :8080，AI Service :8000，
+    UAV Gateway :9000（Gateway 侧走 MQTT/内部协议，不在本规范）。
+
+servers:
+  - url: /
+    description: 网关根路径（路径已含 /api/v1 与 /ai/v1 前缀）
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+    description: 认证与RBAC（07号第35章）
+  - name: UAV
+    description: 无人机管理与实时状态（07号第8~10章）
+  - name: Fire
+    description: 火情检测/事件/火点/核验（07号第11~14章）
+  - name: Mission
+    description: 任务（07号第15章）
+  - name: Dispatch
+    description: 调度（07号第16章）
+  - name: Command
+    description: 无人机命令（07号第17~19章）
+  - name: AI-Service
+    description: AI服务内部接口（07号第20~23章；Backend↔AI，不对外）
+
+paths:
+
+  # ===================================================================
+  # Auth（07号第35章）
+  # ===================================================================
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: 登录获取Token
+      security: []                       # 匿名
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 签发 Access/Refresh Token（有效期过渡基线：Access 30min / Refresh 7d，最终以 config/auth/auth-v1.yaml 为准）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TokenPair'
+        '40101':
+          $ref: '#/components/responses/Unauthorized'
+        '42901':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: 刷新Access Token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: 签发新Token对
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TokenPair'
+        '40101':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: 注销（撤销当前Token）
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEmpty'
+        '40101':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: 当前用户信息（角色与权限）
+      responses:
+        '200':
+          description: 当前用户及其RBAC角色/权限
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UserInfo'
+        '40101':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ===================================================================
+  # UAV（07号第8~10章）
+  # ===================================================================
+  /api/v1/uavs:
+    post:
+      tags: [UAV]
+      summary: 注册UAV
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UavCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkUavInfo'
+        '40001':
+          $ref: '#/components/responses/BadRequest'
+        '40901':
+          $ref: '#/components/responses/DuplicateRequest'
+    get:
+      tags: [UAV]
+      summary: 查询UAV列表
+      responses:
+        '200':
+          description: UAV列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/UavInfo'
+        '40101':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/uavs/{uavId}:
+    get:
+      tags: [UAV]
+      summary: 查询单架UAV
+      parameters:
+        - $ref: '#/components/parameters/UavId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkUavInfo'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/uavs/{uavId}/state:
+    get:
+      tags: [UAV]
+      summary: 查询UAV实时状态
+      description: "REST返回实时状态摘要；完整13子模型状态走 MQTT UAV_STATE（语义 owner=05号协议）。"
+      parameters:
+        - $ref: '#/components/parameters/UavId'
+      responses:
+        '200':
+          description: 实时状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UavStateSummary'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  # ===================================================================
+  # Fire（07号第11~14章）
+  # ===================================================================
+  /api/v1/fire/detections:
+    post:
+      tags: [Fire]
+      summary: 创建火情检测记录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DetectionCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEmpty'
+        '40002':
+          $ref: '#/components/responses/DataNotFound'
+
+  /api/v1/fire/incidents:
+    post:
+      tags: [Fire]
+      summary: 创建火情事件
+      description: "V1：请求体字段以04号 fire_incident 表与03号功能设计为准（本文档未冻结字段级契约）。"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          $ref: '#/components/responses/OkFireIncident'
+    get:
+      tags: [Fire]
+      summary: 查询火情事件列表
+      responses:
+        '200':
+          description: 火情事件列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FireIncident'
+
+  /api/v1/fire/incidents/{incidentId}:
+    get:
+      tags: [Fire]
+      summary: 查询单个火情事件
+      parameters:
+        - $ref: '#/components/parameters/IncidentId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkFireIncident'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/fire/incidents/{incidentId}/status:
+    patch:
+      tags: [Fire]
+      summary: 更新火情事件状态
+      description: "状态机：SUSPECTED→VERIFYING→CONFIRMED→TRACKING→PROCESSING→RESOLVED→CLOSED；VERIFYING→FALSE_ALARM（终态）。非法迁移返回40003。"
+      parameters:
+        - $ref: '#/components/parameters/IncidentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncidentStatusUpdateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkFireIncident'
+        '40003':
+          $ref: '#/components/responses/InvalidState'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+        '40301':
+          $ref: '#/components/responses/Forbidden'   # fire:confirm
+
+  /api/v1/fire/incidents/{incidentId}/verification:
+    post:
+      tags: [Fire]
+      summary: 触发/提交火情二次核验（F04）
+      parameters:
+        - $ref: '#/components/parameters/IncidentId'
+      responses:
+        '200':
+          description: 核验结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/VerificationResult'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+        '50002':
+          $ref: '#/components/responses/AiError'
+
+  /api/v1/fire/points:
+    post:
+      tags: [Fire]
+      summary: 创建火点
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FirePoint'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEmpty'
+        '40002':
+          $ref: '#/components/responses/DataNotFound'
+
+  /api/v1/fire/points/{pointId}:
+    get:
+      tags: [Fire]
+      summary: 查询单个火点
+      parameters:
+        - $ref: '#/components/parameters/PointId'
+      responses:
+        '200':
+          description: 火点
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/FirePoint'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/fire/verifications/{verificationId}:
+    get:
+      tags: [Fire]
+      summary: 查询核验记录
+      parameters:
+        - $ref: '#/components/parameters/VerificationId'
+      responses:
+        '200':
+          description: 核验结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/VerificationResult'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  # ===================================================================
+  # Mission（07号第15章）
+  # ===================================================================
+  /api/v1/missions:
+    post:
+      tags: [Mission]
+      summary: 创建任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MissionCreateRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkMissionInfo'
+        '40001':
+          $ref: '#/components/responses/BadRequest'
+        '40301':
+          $ref: '#/components/responses/Forbidden'   # mission:create
+    get:
+      tags: [Mission]
+      summary: 查询任务列表
+      responses:
+        '200':
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/MissionInfo'
+
+  /api/v1/missions/{missionId}:
+    get:
+      tags: [Mission]
+      summary: 查询单个任务
+      parameters:
+        - $ref: '#/components/parameters/MissionId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkMissionInfo'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/missions/{missionId}/start:
+    post:
+      tags: [Mission]
+      summary: 启动任务
+      parameters:
+        - $ref: '#/components/parameters/MissionId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkMissionInfo'
+        '40003':
+          $ref: '#/components/responses/InvalidState'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/missions/{missionId}/pause:
+    post:
+      tags: [Mission]
+      summary: 暂停任务
+      parameters:
+        - $ref: '#/components/parameters/MissionId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkMissionInfo'
+        '40003':
+          $ref: '#/components/responses/InvalidState'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/missions/{missionId}/resume:
+    post:
+      tags: [Mission]
+      summary: 恢复任务
+      parameters:
+        - $ref: '#/components/parameters/MissionId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkMissionInfo'
+        '40003':
+          $ref: '#/components/responses/InvalidState'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/missions/{missionId}/cancel:
+    post:
+      tags: [Mission]
+      summary: 取消任务
+      parameters:
+        - $ref: '#/components/parameters/MissionId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkMissionInfo'
+        '40003':
+          $ref: '#/components/responses/InvalidState'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+        '40301':
+          $ref: '#/components/responses/Forbidden'   # mission:cancel
+
+  # ===================================================================
+  # Dispatch（07号第16章）
+  # ===================================================================
+  /api/v1/dispatch:
+    post:
+      tags: [Dispatch]
+      summary: 发起调度
+      description: "对任务执行 F09 打分调度（distance/battery/capability/link 等因子），产出 dispatchId 并可confirm执行。"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [missionId]
+              properties:
+                missionId:
+                  type: string
+                  example: MISSION-001
+      responses:
+        '200':
+          description: 调度结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DispatchResult'
+        '40002':
+          $ref: '#/components/responses/DataNotFound'
+        '40301':
+          $ref: '#/components/responses/Forbidden'
+        '50003':
+          $ref: '#/components/responses/UavCommError'
+
+  /api/v1/dispatch/{dispatchId}:
+    get:
+      tags: [Dispatch]
+      summary: 查询调度结果
+      parameters:
+        - $ref: '#/components/parameters/DispatchId'
+      responses:
+        '200':
+          description: 调度结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DispatchResult'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/dispatch/{dispatchId}/confirm:
+    post:
+      tags: [Dispatch]
+      summary: 确认调度（下发执行）
+      parameters:
+        - $ref: '#/components/parameters/DispatchId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEmpty'
+        '40003':
+          $ref: '#/components/responses/InvalidState'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/dispatch/{dispatchId}/cancel:
+    post:
+      tags: [Dispatch]
+      summary: 取消调度
+      parameters:
+        - $ref: '#/components/parameters/DispatchId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEmpty'
+        '40003':
+          $ref: '#/components/responses/InvalidState'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  # ===================================================================
+  # Command（07号第17~19章）
+  # ===================================================================
+  /api/v1/uavs/{uavId}/commands:
+    post:
+      tags: [Command]
+      summary: 下发无人机命令
+      description: |
+        命令类型为九项核心集（TAKEOFF/LAND/GOTO/GIMBAL_LOOK_AT/CAPTURE_RGB/
+        CAPTURE_THERMAL/RETURN_HOME/PAUSE/RESUME）。
+        控制类命令 TAKEOFF/GOTO/RETURN_HOME/PAUSE/RESUME 须持 uav:command 权限，
+        所有控制行为写入 AuditLog（07号第35.6节）。
+      parameters:
+        - $ref: '#/components/parameters/UavId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommandCreateRequest'
+            examples:
+              goto:
+                summary: GOTO（禁止裸高度值）
+                value:
+                  commandType: GOTO
+                  params:
+                    latitude: 35.1234
+                    longitude: 139.1234
+                    altitude: 150
+                    altitudeMode: RELATIVE_TO_TAKEOFF
+                    speed: 10
+              gimbalLookAt:
+                summary: GIMBAL_LOOK_AT
+                value:
+                  commandType: GIMBAL_LOOK_AT
+                  params:
+                    latitude: 35.1234
+                    longitude: 139.1234
+                    altitude: 0
+                    altitudeMode: AGL
+      responses:
+        '200':
+          description: 命令受理（进入 CREATED→SENT→… 状态机）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CommandRecord'
+        '40001':
+          $ref: '#/components/responses/BadRequest'
+        '40301':
+          $ref: '#/components/responses/Forbidden'   # uav:command
+        '50003':
+          $ref: '#/components/responses/UavCommError'
+        '50004':
+          $ref: '#/components/responses/VendorError'
+
+  /api/v1/commands/{commandId}:
+    get:
+      tags: [Command]
+      summary: 查询命令状态
+      parameters:
+        - $ref: '#/components/parameters/CommandId'
+      responses:
+        '200':
+          description: 命令记录
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CommandRecord'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/commands/{commandId}/cancel:
+    post:
+      tags: [Command]
+      summary: 取消命令
+      parameters:
+        - $ref: '#/components/parameters/CommandId'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkEmpty'
+        '40003':
+          $ref: '#/components/responses/InvalidState'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
+  # ===================================================================
+  # AI Service（07号第20~23章；前缀 /ai/v1，内部接口）
+  # ===================================================================
+  /ai/v1/detection:
+    post:
+      tags: [AI-Service]
+      summary: 烟雾/火焰目标检测（F01）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiDetectionRequest'
+      responses:
+        '200':
+          description: 检测结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiDetectionResponse'
+        '50002':
+          $ref: '#/components/responses/AiError'
+
+  /ai/v1/thermal/anomaly:
+    post:
+      tags: [AI-Service]
+      summary: 红外热异常检测（F02）
+      description: "V1：请求/响应字段以06号A02与05号媒体/载荷定义为准（07号未冻结字段级契约）。"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiGenericRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkAiGeneric'
+        '50002':
+          $ref: '#/components/responses/AiError'
+
+  /ai/v1/localization:
+    post:
+      tags: [AI-Service]
+      summary: 火点定位（F03）
+      description: "输入：media + camera calibration + UAV position/attitude + gimbal + altitude + DEM。"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiGenericRequest'
+      responses:
+        '200':
+          description: 定位结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AiLocalizationResult'
+        '50002':
+          $ref: '#/components/responses/AiError'
+
+  /ai/v1/verification:
+    post:
+      tags: [AI-Service]
+      summary: 火情二次核验（F04）
+      description: "输入证据：RGB + Thermal + Temporal Evidence + Spatial Evidence。"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiGenericRequest'
+      responses:
+        '200':
+          description: 核验输出
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/VerificationResult'
+        '50002':
+          $ref: '#/components/responses/AiError'
+
+  /ai/v1/segmentation:
+    post:
+      tags: [AI-Service]
+      summary: 火场分割（F05）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiGenericRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkAiGeneric'
+        '50002':
+          $ref: '#/components/responses/AiError'
+
+  /ai/v1/tracking:
+    post:
+      tags: [AI-Service]
+      summary: 火势跟踪（F06）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiGenericRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OkAiGeneric'
+        '50002':
+          $ref: '#/components/responses/AiError'
+
+# =====================================================================
+components:
+  # -------------------------------------------------------------------
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "JWT Access Token（30min过渡基线）+ Refresh Token（7d），见07号第35章。"
+
+  # -------------------------------------------------------------------
+  parameters:
+    UavId:
+      name: uavId
+      in: path
+      required: true
+      schema: { type: string }
+      example: UAV-001
+    IncidentId:
+      name: incidentId
+      in: path
+      required: true
+      schema: { type: string }
+      example: INC-001
+    PointId:
+      name: pointId
+      in: path
+      required: true
+      schema: { type: string }
+      example: POINT-001
+    VerificationId:
+      name: verificationId
+      in: path
+      required: true
+      schema: { type: string }
+      example: VER-001
+    MissionId:
+      name: missionId
+      in: path
+      required: true
+      schema: { type: string }
+      example: MISSION-001
+    DispatchId:
+      name: dispatchId
+      in: path
+      required: true
+      schema: { type: string }
+      example: DIS-001
+    CommandId:
+      name: commandId
+      in: path
+      required: true
+      schema: { type: string }
+      example: CMD-001
+
+  # -------------------------------------------------------------------
+  responses:
+    OkEmpty:
+      description: 成功（data 为空对象或null）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  data: { type: object, nullable: true }
+    OkUavInfo:
+      description: UAV信息
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UavInfo'
+    OkFireIncident:
+      description: 火情事件
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/FireIncident'
+    OkMissionInfo:
+      description: 任务信息
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MissionInfo'
+    OkAiGeneric:
+      description: AI结果（V1通用结构，字段以06号各算法输出Schema为准）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Envelope'
+              - type: object
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: true
+    BadRequest:
+      description: "40001 参数错误"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    DataNotFound:
+      description: "40002 数据不存在（业务层引用对象不存在，如fireIncidentId/mediaId无效）"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    InvalidState:
+      description: "40003 状态非法（如火情状态机非法迁移）"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: "40101 未认证（Token缺失/过期）"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: "40301 无权限（所需权限见端点说明）"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: "40401 资源不存在（REST路径无对应资源）"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    DuplicateRequest:
+      description: "40901 重复请求"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    ResourceConflict:
+      description: "40902 资源冲突"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    RateLimited:
+      description: "42901 请求过于频繁"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    ServerError:
+      description: "50001 服务异常"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    AiError:
+      description: "50002 AI服务异常"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UavCommError:
+      description: "50003 UAV通信异常"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    VendorError:
+      description: "50004 第三方厂商接口异常"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  # -------------------------------------------------------------------
+  schemas:
+    # ---------- 通用 ----------
+    Envelope:
+      type: object
+      required: [code, message, requestId]
+      properties:
+        code:
+          $ref: '#/components/schemas/ApiCode'
+        message:
+          type: string
+          example: success
+        requestId:
+          type: string
+          example: REQ-001
+    ApiCode:
+      type: integer
+      description: |
+        统一状态码（07号第7章）。0=成功；40001参数错误；40002数据不存在（业务引用）；
+        40003状态非法；40101未认证；40301无权限；40401资源不存在（REST路径）；
+        40901重复请求；40902资源冲突；42901限流；50001服务异常；50002 AI异常；
+        50003 UAV通信异常；50004厂商接口异常。
+      enum: [0, 40001, 40002, 40003, 40101, 40301, 40401, 40901, 40902, 42901, 50001, 50002, 50003, 50004]
+    ErrorEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              nullable: true
+
+    # ---------- Auth ----------
+    LoginRequest:
+      type: object
+      required: [username, password]
+      description: "V1契约：用户名密码登录；字段细节以 config/auth/auth-v1.yaml 落地实现为准。"
+      properties:
+        username: { type: string, example: admin }
+        password: { type: string, format: password, example: '******' }
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }
+    TokenPair:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        tokenType: { type: string, example: Bearer }
+        expiresIn: { type: integer, description: Access Token有效期（秒，过渡基线1800），最终以 config/auth/auth-v1.yaml 为准, example: 1800 }
+    UserInfo:
+      type: object
+      properties:
+        userId: { type: string }
+        username: { type: string }
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/RbacRole'
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RbacPermission'
+    RbacRole:
+      type: string
+      description: "RBAC角色六项（07号第35.4节）"
+      enum: [ADMIN, OPERATOR, DISPATCHER, ALGORITHM_ENGINEER, VIEWER, AUDITOR]
+    RbacPermission:
+      type: string
+      description: "权限集合11项（07号第35.5节，主定义07，机器来源 config/auth/auth-v1.yaml）"
+      enum: [uav:read, uav:command, mission:read, mission:create, mission:cancel, fire:read, fire:confirm, algorithm:read, algorithm:manage, system:manage, audit:read]
+
+    # ---------- UAV ----------
+    UavVendor:
+      type: string
+      description: "设备来源（05号 Header.source：MOCK|DJI|OTHER）"
+      enum: [MOCK, DJI, OTHER]
+    UavCapability:
+      type: string
+      description: "V1核心能力位（07号示例）；完整11项能力矩阵见09号文档，扩展须经其确认"
+      enum: [RGB, THERMAL, GIMBAL]
+    DeviceStatus:
+      type: string
+      description: "设备级状态（enums.yaml#DeviceStatus，owner=09号第23章）"
+      enum: [OFFLINE, CONNECTING, ONLINE, IDLE, TAKEOFF, AIRBORNE, MISSION_EXECUTING, RETURNING, LANDING, ERROR]
+    GpsStatus:
+      type: string
+      description: "GPS状态（owner=05号 navigation 子模型）"
+      enum: [NO_SIGNAL, 2D_FIX, 3D_FIX]
+    RtkStatus:
+      type: string
+      description: "RTK状态（owner=05号 navigation 子模型）"
+      enum: [NONE, SINGLE, FLOAT, FIXED]
+    UavCreateRequest:
+      type: object
+      required: [deviceId, vendor]
+      properties:
+        deviceId: { type: string, example: UAV-001 }
+        serialNumber: { type: string, example: SN001 }
+        vendor:
+          $ref: '#/components/schemas/UavVendor'
+        model: { type: string, example: SIM-UAV }
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/UavCapability'
+    UavInfo:
+      type: object
+      properties:
+        deviceId: { type: string }
+        serialNumber: { type: string }
+        vendor:
+          $ref: '#/components/schemas/UavVendor'
+        model: { type: string }
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/UavCapability'
+        deviceStatus:
+          $ref: '#/components/schemas/DeviceStatus'
+    UavStateSummary:
+      type: object
+      description: "REST实时状态摘要（07号第10章）；完整状态走MQTT UAV_STATE（05号）。"
+      properties:
+        deviceId: { type: string, example: UAV-001 }
+        status:
+          $ref: '#/components/schemas/DeviceStatus'
+        latitude: { type: number, format: double, example: 35.1234 }
+        longitude: { type: number, format: double, example: 139.1234 }
+        altitude: { type: number, format: double, description: 遥测高度（07号第10章；altitudeMode仅约束目标点，不约束遥测）, example: 120.5 }
+        heading: { type: number, format: double, example: 185.2 }
+        speed: { type: number, format: double, example: 10.4 }
+        battery: { type: integer, minimum: 0, maximum: 100, description: 电量百分比；四级状态判定见 constants.yaml#battery_thresholds, example: 82 }
+        gpsStatus:
+          $ref: '#/components/schemas/GpsStatus'
+        rtkStatus:
+          $ref: '#/components/schemas/RtkStatus'
+
+    # ---------- Fire ----------
+    Bbox:
+      type: object
+      description: 检测框（像素坐标，x/y为左上角）
+      required: [x, y, width, height]
+      properties:
+        x: { type: integer, example: 521 }
+        y: { type: integer, example: 311 }
+        width: { type: integer, example: 102 }
+        height: { type: integer, example: 117 }
+    DetectionCreateRequest:
+      type: object
+      required: [uavId, mediaId, confidence]
+      properties:
+        uavId: { type: string, example: UAV-001 }
+        mediaId: { type: string, example: MEDIA-001 }
+        algorithmTaskId: { type: string, example: ALG-001 }
+        detectionType:
+          type: string
+          description: "检测类别；语义来自06号A01（类别smoke/flame），V1不冻结枚举，示例FIRE"
+          example: FIRE
+        confidence: { type: number, format: double, minimum: 0, maximum: 1, example: 0.92 }
+        bbox:
+          $ref: '#/components/schemas/Bbox'
+    IncidentStatus:
+      type: string
+      description: "火情事件状态（enums.yaml#IncidentStatus；owner=01/04/07）"
+      enum: [SUSPECTED, VERIFYING, CONFIRMED, FALSE_ALARM, TRACKING, PROCESSING, RESOLVED, CLOSED]
+    IncidentStatusUpdateRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/IncidentStatus'
+        reason: { type: string, description: 变更原因（审计） }
+    FireIncident:
+      type: object
+      description: "火情事件；完整字段以04号 fire_incident 表为准（UUID主键+incident_no业务号、TIMESTAMPTZ、SRID4326）。"
+      properties:
+        id: { type: string, format: uuid }
+        incidentNo: { type: string, description: 业务号, example: INC-20260927-0001 }
+        status:
+          $ref: '#/components/schemas/IncidentStatus'
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    LocationMethod:
+      type: string
+      description: "火点定位方法五值枚举（enums.yaml#LocationMethod，基线第40章）"
+      enum: [RAY_GROUND_INTERSECTION, DEM_RAY_INTERSECTION, RTK_GEOREFERENCED, DIRECT_GEOREFERENCED, MANUAL]
+    FirePoint:
+      type: object
+      description: "火点；04号含 position_error_radius 与 location_method 字段（V1.2补充）。"
+      properties:
+        incidentId: { type: string, example: INC-001 }
+        latitude: { type: number, format: double, example: 35.123456 }
+        longitude: { type: number, format: double, example: 139.123456 }
+        altitude: { type: number, format: double, description: 地面高程（火点位于地面）, example: 0 }
+        locationMethod:
+          $ref: '#/components/schemas/LocationMethod'
+        accuracy: { type: number, format: double, description: 定位误差（米），对应04号 position_error_radius, example: 15.4 }
+    VerificationStatus:
+      type: string
+      description: "核验结论（enums.yaml#VerificationStatus）"
+      enum: [CONFIRMED, FALSE_ALARM, UNCERTAIN]
+    VerificationResult:
+      type: object
+      properties:
+        decision:
+          $ref: '#/components/schemas/VerificationStatus'
+        confidence: { type: number, format: double, example: 0.96 }
+        evidence:
+          type: object
+          description: 四证据分项得分（权重与决策线见 constants.yaml#verification）
+          properties:
+            rgb: { type: number, format: double, example: 0.92 }
+            thermal: { type: number, format: double, example: 0.97 }
+            temporal: { type: number, format: double, example: 0.94 }
+            spatial: { type: number, format: double, example: 0.96 }
+
+    # ---------- Mission ----------
+    MissionType:
+      type: string
+      description: "任务业务类型六项（enums.yaml#MissionType；owner=02号第19章，本文档只引用）"
+      enum: [PATROL, RISK_PATROL, FIRE_VERIFICATION, FIRE_TRACKING, THERMAL_INSPECTION, SUPPORT]
+    MediaType:
+      type: string
+      description: "媒体类型七值枚举（enums.yaml#MediaType，owner=04号）；用于MQTT UAV_MEDIA载荷（07号第26章），第一阶段仅启用RGB_IMAGE/THERMAL_IMAGE"
+      enum: [RGB_IMAGE, THERMAL_IMAGE, RGB_VIDEO, THERMAL_VIDEO, MULTISPECTRAL_IMAGE, MULTISPECTRAL_VIDEO, OTHER]
+    AltitudeMode:
+      type: string
+      description: "目标点高度参考系（基线第39章）：禁止无参考系的裸高度值，altitude必须与altitudeMode同时出现"
+      enum: [ELLIPSOID, RELATIVE_TO_TAKEOFF, AGL]
+    TargetPoint:
+      type: object
+      required: [latitude, longitude, altitude, altitudeMode]
+      properties:
+        latitude: { type: number, format: double, example: 35.1234 }
+        longitude: { type: number, format: double, example: 139.1234 }
+        altitude: { type: number, format: double, description: 目标高度值, example: 150 }
+        altitudeMode:
+          $ref: '#/components/schemas/AltitudeMode'
+    MissionStatus:
+      type: string
+      description: "任务执行状态（enums.yaml#MissionStatus；owner=04号）"
+      enum: [CREATED, PENDING, APPROVED, ASSIGNED, EXECUTING, COMPLETED, FAILED, CANCELLED]
+    MissionCreateRequest:
+      type: object
+      required: [missionType, target]
+      properties:
+        missionType:
+          $ref: '#/components/schemas/MissionType'
+        priority: { type: integer, description: "任务优先级（0~100）", example: 90 }
+        incidentId: { type: string, description: 关联火情事件（核验/跟踪类任务）, example: INC-001 }
+        target:
+          $ref: '#/components/schemas/TargetPoint'
+        requiredCapabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/UavCapability'
+    MissionInfo:
+      type: object
+      properties:
+        missionId: { type: string, example: MISSION-001 }
+        missionType:
+          $ref: '#/components/schemas/MissionType'
+        priority: { type: integer, example: 90 }
+        incidentId: { type: string }
+        target:
+          $ref: '#/components/schemas/TargetPoint'
+        status:
+          $ref: '#/components/schemas/MissionStatus'
+
+    # ---------- Dispatch ----------
+    DispatchResult:
+      type: object
+      properties:
+        dispatchId: { type: string, example: DIS-001 }
+        missionId: { type: string, example: MISSION-001 }
+        uavId: { type: string, example: UAV-002 }
+        score: { type: number, format: double, example: 87.6 }
+        reason:
+          type: object
+          description: 调度因子得分（dispatch_record.factors 留存可解释依据，04号）
+          properties:
+            distance: { type: number, format: double, example: 0.91 }
+            battery: { type: number, format: double, example: 0.82 }
+            capability: { type: number, format: double, example: 1.0 }
+            link: { type: number, format: double, example: 0.95 }
+
+    # ---------- Command ----------
+    CommandType:
+      type: string
+      description: "九项核心命令集（enums.yaml#CommandType；语义owner=05+09）。TAKEOFF/GOTO/RETURN_HOME/PAUSE/RESUME须持uav:command。"
+      enum: [TAKEOFF, LAND, GOTO, GIMBAL_LOOK_AT, CAPTURE_RGB, CAPTURE_THERMAL, RETURN_HOME, PAUSE, RESUME]
+    CommandCreateRequest:
+      type: object
+      required: [commandType]
+      properties:
+        commandType:
+          $ref: '#/components/schemas/CommandType'
+        params:
+          type: object
+          description: "命令参数：GOTO用GotoParams（含altitudeMode）；GIMBAL_LOOK_AT用GimbalLookAtParams；其余命令无参数。"
+    GotoParams:
+      allOf:
+        - $ref: '#/components/schemas/TargetPoint'
+        - type: object
+          properties:
+            speed: { type: number, format: double, description: 目标速度 m/s, example: 10 }
+    GimbalLookAtParams:
+      type: object
+      required: [latitude, longitude, altitude, altitudeMode]
+      properties:
+        latitude: { type: number, format: double, example: 35.1234 }
+        longitude: { type: number, format: double, example: 139.1234 }
+        altitude: { type: number, format: double, example: 0 }
+        altitudeMode:
+          $ref: '#/components/schemas/AltitudeMode'
+    CommandStatus:
+      type: string
+      description: "命令状态机（enums.yaml#CommandStatus）：CREATED→SENT→ACKNOWLEDGED→EXECUTING→SUCCESS；SENT→TIMEOUT、ACKNOWLEDGED→FAILED、EXECUTING→INTERRUPTED"
+      enum: [CREATED, SENT, ACKNOWLEDGED, EXECUTING, SUCCESS, TIMEOUT, FAILED, INTERRUPTED]
+    CommandRecord:
+      type: object
+      properties:
+        commandId: { type: string, example: CMD-001 }
+        deviceId: { type: string, example: UAV-001 }
+        commandType:
+          $ref: '#/components/schemas/CommandType'
+        status:
+          $ref: '#/components/schemas/CommandStatus'
+        message: { type: string, example: arrived }
+
+    # ---------- AI Service ----------
+    AiDetectionRequest:
+      type: object
+      required: [taskId, mediaId]
+      properties:
+        taskId: { type: string, example: ALG-001 }
+        mediaId: { type: string, example: MEDIA-001 }
+        modelId: { type: string, example: fire-detector }
+        modelVersion: { type: string, example: v1.0 }
+    AiDetectionResponse:
+      type: object
+      description: "AI返回算法结果而非业务事件（07号第33章）；status对应AlgorithmTaskStatus（enums.yaml，CANDIDATE）。"
+      properties:
+        taskId: { type: string, example: ALG-001 }
+        status: { type: string, example: SUCCEEDED, description: AlgorithmTaskStatus（04号冻结前以enums.yaml CANDIDATE为准） }
+        detections:
+          type: array
+          items:
+            type: object
+            properties:
+              className: { type: string, example: fire }
+              confidence: { type: number, format: double, example: 0.94 }
+              bbox: { type: array, items: { type: integer }, minItems: 4, maxItems: 4, example: [100, 200, 300, 400] }
+        processingTimeMs: { type: integer, example: 87 }
+    AiGenericRequest:
+      type: object
+      required: [taskId, mediaId]
+      description: "V1通用AI任务请求；各算法输入细节以06号A01~A12与05号媒体/载荷定义为准。"
+      properties:
+        taskId: { type: string }
+        mediaId: { type: string }
+        modelId: { type: string }
+        modelVersion: { type: string }
+    AiLocalizationResult:
+      type: object
+      properties:
+        latitude: { type: number, format: double, example: 35.123456 }
+        longitude: { type: number, format: double, example: 139.123456 }
+        accuracy: { type: number, format: double, description: 误差半径（米）, example: 12.5 }
+        method:
+          $ref: '#/components/schemas/LocationMethod'

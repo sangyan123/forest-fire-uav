@@ -1,0 +1,28 @@
+# =====================================================================
+# F01 火情检测 — 算法运行时配置（fire-detection-v1.yaml）
+# =====================================================================
+# configVersion: fire-detection-config-v1.0
+# provenance:   docs/00-doc/constants.yaml#fire_detection（基线V1.3第33章冻结）
+# 消费方:       ai-service（A01）、backend、08号测试
+# 规则:         本文件镜像 constants.yaml，不得另创数值；参数变更必须先改
+#               基线并走第32章变更协议（Experiment ID/Dataset Version/评审）。
+# =====================================================================
+
+configVersion: fire-detection-config-v1.0
+status: ACTIVE
+
+function: F01 火情检测（烟雾/火焰目标检测，06号A01）
+
+thresholds:
+  t_candidate: 0.40          # confidence < 0.40 忽略；0.40~0.60 为 Candidate
+  t_alert: 0.60              # 0.60~0.80 为 Alert Candidate
+  t_confirm: 0.80            # >= 0.80 为 High Confidence（仍须进入F04核验）
+
+temporal_stability:
+  window_frames: 5           # TEMPORAL_WINDOW：滑动窗口帧数
+  min_positive_frames: 3     # MIN_POSITIVE_FRAMES：窗口内至少3帧一致目标
+
+dedup:                       # 火情候选去重（与backend共用，基线第35章）
+  distance_m: 100
+  time_s: 120
+  same_category_required: true

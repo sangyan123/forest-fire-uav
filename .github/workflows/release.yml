@@ -1,0 +1,29 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+jobs:
+  release:
+    name: 发布构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 基线配置校验
+        run: |
+          npx --yes js-yaml docs/00-doc/constants.yaml > /dev/null
+          npx --yes js-yaml docs/api/openapi.yaml > /dev/null
+
+      - name: 构建服务镜像（Dockerfile 落地后自动生效）
+        run: |
+          for d in backend ai-service uav-gateway mock-uav frontend; do
+            if [ -f "$d/Dockerfile" ]; then
+              docker build -t "forest-fire/$d:${GITHUB_REF_NAME}" "$d"
+              docker tag "forest-fire/$d:${GITHUB_REF_NAME}" "forest-fire/$d:latest"
+            fi
+          done
+
+      # 镜像推送（Registry 选型确定后启用，10号V1.1 发布流程）
+      # - run: docker push ...
