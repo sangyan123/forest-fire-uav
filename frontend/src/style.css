@@ -568,11 +568,27 @@ body {
   opacity: 0.78;
 }
 
-.fire-btn.active {
+.fire-btn.active,
+.fire-btn.stop {
   border-color: rgba(148, 163, 184, 0.55);
   background: rgba(148, 163, 184, 0.14);
   color: #cbd5e1;
   box-shadow: none;
+}
+
+/* 误报场景按钮：橙黄警示风 */
+.fire-btn.warn {
+  border-color: rgba(250, 204, 21, 0.55);
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.24), rgba(251, 146, 60, 0.22));
+  color: #ffe9a8;
+  box-shadow:
+    0 0 12px rgba(250, 204, 21, 0.3),
+    inset 0 0 8px rgba(250, 204, 21, 0.12);
+}
+
+.fire-btn.warn:hover {
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.38), rgba(251, 146, 60, 0.34));
+  box-shadow: 0 0 18px rgba(250, 204, 21, 0.45);
 }
 
 .spinner {
@@ -641,6 +657,33 @@ body {
   }
 }
 
+/* 状态变化时的一次性闪烁放大（1.2s，动画结束还原，不常驻） */
+.fire-marker.fire-flash {
+  animation: fire-flash 1.2s ease-out 1;
+}
+
+@keyframes fire-flash {
+  0% {
+    transform: scale(1);
+    filter: none;
+  }
+
+  30% {
+    transform: scale(1.5);
+    filter: brightness(2) drop-shadow(0 0 10px #fff);
+  }
+
+  60% {
+    transform: scale(1.1);
+    filter: brightness(1.4);
+  }
+
+  100% {
+    transform: scale(1);
+    filter: none;
+  }
+}
+
 /* ---------- 火情事件卡片（地图浮层） ---------- */
 .incident-card {
   position: absolute;
@@ -700,6 +743,76 @@ body {
 
 .ic-verdict small {
   color: var(--muted);
+}
+
+/* 核验结论为误报：灰绿色调 */
+.ic-verdict.false {
+  border-color: rgba(110, 231, 183, 0.4);
+  background: rgba(110, 231, 183, 0.06);
+  color: #6ee7b7;
+}
+
+.ic-verdict.false b {
+  color: #a7f3d0;
+}
+
+/* 顶部状态 chip + 误报演示徽标 */
+.ic-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ic-demo-badge {
+  padding: 2px 8px;
+  border: 1px solid rgba(250, 204, 21, 0.5);
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.1);
+  color: #fde047;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* 状态时间线 */
+.ic-timeline {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line-soft);
+}
+
+.ic-tl-head {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.ic-tl-head small {
+  color: #64748b;
+  letter-spacing: 0;
+}
+
+.ic-tl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.tl-chip {
+  padding: 2px 8px;
+  border: 1px solid var(--fire-color);
+  border-radius: 999px;
+  color: var(--fire-color);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.tl-chip.latest {
+  box-shadow: 0 0 8px var(--fire-color);
+  opacity: 1;
 }
 
 .ic-actions {
@@ -804,6 +917,18 @@ body {
   margin-top: 3px;
   color: var(--muted);
   font-size: 11px;
+}
+
+/* 列表项"误报演示"标签 */
+.fire-badge {
+  margin-right: 6px;
+  padding: 1px 6px;
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.08);
+  color: #fde047;
+  font-size: 10.5px;
+  white-space: nowrap;
 }
 
 .fire-dot {

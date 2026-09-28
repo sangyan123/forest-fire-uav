@@ -64,7 +64,17 @@ export interface FireIncident {
   confidence: number | null
   /** 首次检测/创建时间的毫秒时间戳 */
   timeMs: number | null
+  /** 演示场景类型（CONFIRMED 火情线 / FALSE_ALARM 误报线） */
+  scenarioType: string | null
   raw: Record<string, unknown>
+}
+
+/** 状态时间线上的一点 */
+export interface StatusPoint {
+  status: string
+  at: number | null
+  /** backend=接口透出的历史；local=前端轮询记录 */
+  source: 'backend' | 'local'
 }
 
 /** AI 核验结果（宽松解析自 POST /verification 响应） */

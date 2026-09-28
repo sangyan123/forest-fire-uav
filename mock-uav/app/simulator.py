@@ -14,6 +14,14 @@ Fire scenario (customer demo): POST /simulator/scenarios/fire/start flies the UA
 fire point at 15 m/s and, on arrival (< 10 m), automatically starts "fire capture" — one
 UAV_MEDIA on ``uav/{deviceId}/media`` (QoS 1) every 2 s (4 RGB images, then 1 thermal image,
 repeating) until POST /simulator/scenarios/fire/stop restores the rectangular wayline patrol.
+
+Demo verdict lines (body field ``verdict``, default "CONFIRMED"):
+  - CONFIRMED   -> every media published while the scenario is active carries
+                   ``media.metadata = {"scenarioType": "FIRE"}``
+  - FALSE_ALARM -> same flight/capture behaviour, but media carry
+                   ``media.metadata = {"scenarioType": "FALSE_ALARM"}``
+metadata is a demo-mode scenario hint (extra field allowed by uav-media.schema.json);
+real evidence replaces it once a real detection model is online.
 """
 
 import asyncio
@@ -49,6 +57,11 @@ FIRE_TRANSIT_SPEED_MPS = 15.0  # demo pace; restored to CRUISE_SPEED_MPS on arri
 FIRE_ARRIVAL_RADIUS_M = 10.0  # < 10 m -> arrived, capture starts
 MEDIA_CAPTURE_INTERVAL_TICKS = 2  # one UAV_MEDIA every 2 s (1 Hz tick)
 RGB_IMAGES_PER_THERMAL = 4  # every 4 RGB images insert 1 THERMAL_IMAGE
+
+# Demo verdict lines: FALSE_ALARM is the "false alarm" demo run. Both lines fly and capture
+# identically; only media.metadata.scenarioType (consumed by the backend demo) differs.
+SCENARIO_VERDICTS = ("CONFIRMED", "FALSE_ALARM")
+VERDICT_SCENARIO_TYPE = {"CONFIRMED": "FIRE", "FALSE_ALARM": "FALSE_ALARM"}
 
 M_PER_DEG_LAT = 111_320.0
 
@@ -131,6 +144,7 @@ class Simulator:
             "latitude": None,
             "longitude": None,
             "capturing": False,
+            "verdict": "CONFIRMED",
         }
         self._capture_tick = 0
         self._rgb_since_thermal = 0
@@ -177,8 +191,16 @@ class Simulator:
     # fire scenario (customer demo)
     # ------------------------------------------------------------------
 
-    def start_fire_scenario(self, latitude: float | None = None, longitude: float | None = None) -> None:
-        """Fly to the fire point (default north-east of Home) at 15 m/s and start fire capture on arrival."""
+    def start_fire_scenario(self, latitude: float | None = None, longitude: float | None = None,
+                            verdict: str = "CONFIRMED") -> None:
+        """Fly to the fire point (default north-east of Home) at 15 m/s and start fire capture on arrival.
+
+        verdict "CONFIRMED" (default) or "FALSE_ALARM" selects the demo line; both behave
+        identically except for media.metadata.scenarioType ("FIRE" vs "FALSE_ALARM").
+        """
+        verdict = str(verdict).strip().upper() if verdict else "CONFIRMED"
+        if verdict not in SCENARIO_VERDICTS:
+            raise ValueError(f"verdict must be one of {SCENARIO_VERDICTS}, got: {verdict!r}")
         fire_lat = float(latitude) if latitude is not None else FIRE_DEFAULT_LAT
         fire_lon = float(longitude) if longitude is not None else FIRE_DEFAULT_LON
         self._fire_scenario = {
@@ -186,6 +208,7 @@ class Simulator:
             "latitude": fire_lat,
             "longitude": fire_lon,
             "capturing": False,
+            "verdict": verdict,
         }
         self._capture_tick = 0
         self._rgb_since_thermal = 0
@@ -213,6 +236,8 @@ class Simulator:
             "latitude": None,
             "longitude": None,
             "capturing": False,
+            # verdict of the last run is kept for observability (status display only)
+            "verdict": self._fire_scenario["verdict"],
         }
         self._speed_mps = CRUISE_SPEED_MPS
         self._target = None
@@ -615,6 +640,10 @@ class Simulator:
                 "meanTemperature": 34.6,
                 "unit": "CELSIUS",
             }
+        if self._fire_scenario["active"]:
+            # demo-mode scenario hint (extra field, allowed by uav-media.schema.json);
+            # the backend demo consumes it to steer CONFIRMED vs FALSE_ALARM verification
+            media["metadata"] = {"scenarioType": VERDICT_SCENARIO_TYPE[self._fire_scenario["verdict"]]}
         message = {
             "schemaVersion": "1.0",
             "messageId": f"MEDIA-MSG-{uuid.uuid4().hex[:8]}",
@@ -695,6 +724,7 @@ class Simulator:
                     if self._fire_scenario["longitude"] is not None else None
                 ),
                 "capturing": self._fire_scenario["capturing"],
+                "verdict": self._fire_scenario["verdict"],
             },
             "sequence": self._sequence,
         }

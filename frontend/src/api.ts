@@ -63,8 +63,10 @@ export function getCommand(commandId: string): Promise<CommandRecord> {
 
 /* ---------------- 火情模拟场景（simulator, :8002） ---------------- */
 
-/** 一键注入火情场景；body 可选坐标，缺省由后端选择 */
-export function startFireScenario(payload?: { latitude?: number; longitude?: number }): Promise<unknown> {
+/** 一键注入火情场景；body 可选坐标与结论走向（缺省 CONFIRMED） */
+export function startFireScenario(
+  payload?: { latitude?: number; longitude?: number; verdict?: 'CONFIRMED' | 'FALSE_ALARM' },
+): Promise<unknown> {
   return requestBase<unknown>(SIM_BASE, '/simulator/scenarios/fire/start', {
     method: 'POST',
     headers: JSON_HEADERS,

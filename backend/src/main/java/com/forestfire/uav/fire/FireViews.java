@@ -22,6 +22,7 @@ public final class FireViews {
             String title,
             String status,
             String level,
+            String scenarioType,
             Double latitude,
             Double longitude,
             BigDecimal latestConfidence,
@@ -74,7 +75,9 @@ public final class FireViews {
             BigDecimal temporalScore,
             BigDecimal spatialScore,
             String incidentStatus,
-            Instant verifiedAt
+            Instant verifiedAt,
+            String scenarioType,
+            String evidenceSource
     ) {
     }
 
@@ -85,6 +88,7 @@ public final class FireViews {
             String title,
             String status,
             String level,
+            String scenarioType,
             Double latitude,
             Double longitude,
             Instant firstDetectedAt,

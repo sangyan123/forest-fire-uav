@@ -28,6 +28,8 @@
 
 | 2026-09-28 | D1：Phase 3 火情业务闭环落地（排期提前一天完成） | backend新增26文件（media/fire/mission/dispatch四包，10端点，7表实体@Column逐字对齐+hibernate-spatial，火情去重100m/120s两层筛选实测28检测合并1事件）；ai-service升级mock provider（detection/localization/verification/thermal/segmentation/tracking，AI_PROVIDER双轨）；gateway新增uav/+/media订阅转发；mock-uav新增火情场景（fire/start→15m/s转场→到位每2s回传媒体4RGB+1THERMAL循环、CAPTURE命令复拍、fire/stop恢复巡航，媒体消息经官方uav-media.schema.json校验）；frontend火情演示界面（注入主按钮/火点脉冲marker按8态着色/事件卡/核验派单流转/2s列表轮询，npm build通过）；**D1端到端验收通过**：注入→转场~50s→自动发现INC-20260928-0001(SUSPECTED,0.93)→核验CONFIRMED(0.904精确命中冻结权重公式)→media_file 35/fire_detection 28/fire_point 28/fire_incident 1/fire_verification 1全落位 |
 
+| 2026-09-28 | D2：Phase 4 收尾——误报演示线与状态流转打磨 | mock-uav 场景body增加verdict(CONFIRMED/FALSE_ALARM)，媒体内嵌metadata.scenarioType提示（21项断言，含schema校验）；backend media-ingest解析提示落incident.extra，核验时body无evidence则按场景派生（FIRE→0.9/0.92/0.88/0.9，FALSE_ALARM→0.30/0.22/0.40/0.30，阈值判定仍交AI Service），body显式传证据优先（D1行为保留）；frontend 顶栏拆双按钮（🔥火情/⚠️误报）、误报徽标、核验toast三分支文案、marker状态变化闪烁动画1.2s、活跃态优先排序、事件卡状态时间线（会话内记录）；**D2端到端验收**：火情线CONFIRMED(0.904)与误报线FALSE_ALARM(0.287)双线实测通过，两个事件并存在地图（INC-0001 FIRE/CONFIRMED、INC-0002 FALSE_ALARM/FALSE_ALARM），前端200 |
+
 ------
 
 ## 二、未决 Issue（按基线第71章流程登记）

@@ -4,7 +4,7 @@
  * 后端字段命名可能不统一（firePoint.latitude / latitude / incidentLatitude 等），
  * 所有取值都走 pickPath 宽松回退，保证演示时不因字段差异丢数据。
  */
-import type { FireIncident, VerificationResult } from './types'
+import type { FireIncident, StatusPoint, VerificationResult } from './types'
 
 /* ---------------- 状态标签与颜色 ---------------- */
 
@@ -280,6 +280,7 @@ export function parseIncident(item: unknown): FireIncident | null {
   if (!raw) return null
   const id = idOf(raw) ?? ''
   const coords = coordsOf(raw)
+  const scenarioRaw = pickFirst(raw, 'scenarioType', 'scenario_type', 'demoScenarioType', 'scenario')
   return {
     id,
     incidentNo: incidentNoOf(raw, id || '未知事件'),
@@ -288,6 +289,7 @@ export function parseIncident(item: unknown): FireIncident | null {
     longitude: coords?.longitude ?? null,
     confidence: confidenceOf(raw),
     timeMs: timeMsOf(raw),
+    scenarioType: scenarioRaw === undefined ? null : String(scenarioRaw).trim().toUpperCase(),
     raw,
   }
 }
@@ -371,4 +373,71 @@ export function relTimeText(timeMs: number | null, now: number): string {
 export function formatCoords(lat: number | null, lng: number | null): string {
   if (lat === null || lng === null) return '—'
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+}
+
+/* ---------------- 展示排序 / 误报演示 / 状态时间线 ---------------- */
+
+/** 唯一终态（其余视为活跃态排在前面） */
+export function isTerminalFireStatus(status?: string | null): boolean {
+  return (status ?? '').toUpperCase() === 'CLOSED'
+}
+
+/** 误报演示线事件 */
+export function isFalseAlarmDemo(inc: FireIncident | null | undefined): boolean {
+  return inc?.scenarioType === 'FALSE_ALARM'
+}
+
+/** 列表展示排序：活跃态（非终态）在前，组内按创建时间倒序（无时间视为最旧） */
+export function sortIncidentsForDisplay(list: FireIncident[]): FireIncident[] {
+  const byNewest = (a: FireIncident, b: FireIncident): number => (b.timeMs ?? 0) - (a.timeMs ?? 0)
+  const active = list.filter((i) => !isTerminalFireStatus(i.status)).sort(byNewest)
+  const done = list.filter((i) => isTerminalFireStatus(i.status)).sort(byNewest)
+  return [...active, ...done]
+}
+
+/** 事件原始数据中的状态历史（若后端透出）。找不到返回 null */
+export function parseStatusHistory(raw: unknown): StatusPoint[] | null {
+  const rec = asRecord(raw)
+  if (!rec) return null
+  for (const key of ['statusHistory', 'statusTimeline', 'statusHistoryList', 'statusLog', 'statusRecords', 'history']) {
+    const arr = rec[key]
+    if (!Array.isArray(arr) || arr.length === 0) continue
+    const points: StatusPoint[] = []
+    for (const entry of arr) {
+      if (typeof entry === 'string' || typeof entry === 'number') {
+        points.push({ status: String(entry).trim().toUpperCase(), at: null, source: 'backend' })
+        continue
+      }
+      const e = asRecord(entry)
+      if (!e) continue
+      const st = pickFirst(e, 'status', 'toStatus', 'newStatus', 'state', 'targetStatus')
+      if (st === undefined) continue
+      const tRaw = pickFirst(e, 'at', 'time', 'changedAt', 'timestamp', 'createdAt', 'updatedAt')
+      let at: number | null = null
+      if (typeof tRaw === 'number' && Number.isFinite(tRaw)) {
+        at = tRaw < 1e12 ? tRaw * 1000 : tRaw
+      } else if (typeof tRaw === 'string' && tRaw) {
+        const ms = Date.parse(tRaw.includes('T') ? tRaw : tRaw.replace(' ', 'T'))
+        if (Number.isFinite(ms)) at = ms
+      }
+      points.push({ status: String(st).trim().toUpperCase(), at, source: 'backend' })
+    }
+    if (points.length > 0) return points
+  }
+  return null
+}
+
+/**
+ * 记录状态变化（纯函数）：末点状态相同返回原数组，否则追加点。
+ * 后端历史优先采用（整段替换由调用方完成），本地轮询追加 source='local' 的点。
+ */
+export function appendTimelinePoint(
+  points: StatusPoint[],
+  status: string,
+  at: number,
+  source: 'backend' | 'local',
+): StatusPoint[] {
+  const last = points[points.length - 1]
+  if (last && last.status === status) return points
+  return [...points, { status, at, source }]
 }

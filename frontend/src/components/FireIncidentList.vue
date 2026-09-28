@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { fireStatusColor, relTimeText, zhFireStatus } from '../fire'
+import { fireStatusColor, isFalseAlarmDemo, relTimeText, zhFireStatus } from '../fire'
 import type { FireIncident } from '../types'
 
 defineProps<{
@@ -38,6 +38,7 @@ function chipStyle(inc: FireIncident): Record<string, string> {
           <span class="fire-no">{{ inc.incidentNo }}</span>
         </div>
         <div class="fire-sub">
+          <span v-if="isFalseAlarmDemo(inc)" class="fire-badge">⚠️ 误报演示</span>
           置信度 {{ inc.confidence === null ? '—' : `${inc.confidence}%` }} · {{ relTimeText(inc.timeMs, now) }}
         </div>
       </li>

@@ -79,9 +79,22 @@ public class FireIncidentService {
             "RAY_GROUND_INTERSECTION", "DEM_RAY_INTERSECTION",
             "RTK_GEOREFERENCED", "DIRECT_GEOREFERENCED", "MANUAL");
 
-    /** F04 证据默认分（任务书给定：0.9/0.92/0.88/0.9） */
+    /** F04 证据默认分（FIRE 场景基线，D1）：加权 0.35×0.9+0.35×0.92+0.15×0.88+0.15×0.9 ≈ 0.904 ≥0.80 → CONFIRMED */
     private static final Map<String, Double> DEFAULT_EVIDENCE = Map.of(
             "rgb", 0.9, "thermal", 0.92, "temporal", 0.88, "spatial", 0.9);
+
+    /**
+     * FALSE_ALARM 场景低证据（D2 误报演示线，media.metadata.scenarioType=FALSE_ALARM 时派生）：
+     * 加权 0.35×0.30+0.35×0.22+0.15×0.40+0.15×0.30 ≈ 0.287 <0.50 → FALSE_ALARM。
+     * 【MVP mock 模式决策】证据派生自场景提示而非真实算法打分；真实模型上线后由真实证据替代。
+     */
+    private static final Map<String, Double> FALSE_ALARM_SCENARIO_EVIDENCE = Map.of(
+            "rgb", 0.30, "thermal", 0.22, "temporal", 0.40, "spatial", 0.30);
+
+    /** 场景提示枚举（D2 误报演示线）：media.metadata.scenarioType，缺省 FIRE */
+    public static final String SCENARIO_FIRE = "FIRE";
+
+    public static final String SCENARIO_FALSE_ALARM = "FALSE_ALARM";
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd")
             .withZone(ZoneOffset.UTC);
@@ -119,9 +132,14 @@ public class FireIncidentService {
      * 命中：更新 incident latest 相关字段（坐标/extra.latestConfidence/detectionCount）；
      * 未命中：新建 incident（status=SUSPECTED，level 按 confidence≥0.80→HIGH 否则 MEDIUM）。
      * 两种路径都回填 fire_point.incident_id。
+     *
+     * <p>D2 误报演示线：scenarioType（media.metadata.scenarioType，FIRE/FALSE_ALARM，缺省 FIRE）
+     * 在创建与合并两条路径都写入 incident.extra.scenarioType（后到覆盖，演示线空间上分离，
+     * 实际不会互相覆盖），核验时据此派生证据。</p>
      */
     @Transactional
-    public IncidentAttachResult attachPointToIncident(FirePointEntity point, BigDecimal confidence) {
+    public IncidentAttachResult attachPointToIncident(FirePointEntity point, BigDecimal confidence,
+                                                      String scenarioType) {
         double lat = point.getLatitude();
         double lon = point.getLongitude();
         Instant detectedAt = point.getDetectedAt();
@@ -171,6 +189,7 @@ public class FireIncidentService {
                     ? Math.max(previousMax, confidence.doubleValue()) : previousMax);
             extra.put("lastMergedPointId", point.getId().toString());
             extra.put("lastMergeDistanceM", Math.round(matchedDistance * 10) / 10.0);
+            extra.put("scenarioType", scenarioType);                    // D2：合并路径也写入场景提示
             incident.setExtra(extra);
             incident.setUpdatedAt(now);
             incident = incidentRepository.save(incident);
@@ -196,6 +215,7 @@ public class FireIncidentService {
             extra.put("detectionCount", 1);
             extra.put("latestConfidence", confidence);
             extra.put("maxConfidence", confidence);
+            extra.put("scenarioType", scenarioType);                    // D2：创建路径写入场景提示
             incident.setExtra(extra);
             incident.setCreatedAt(now);                                 // created_at NOT NULL
             incident.setUpdatedAt(now);                                 // updated_at NOT NULL
@@ -241,12 +261,12 @@ public class FireIncidentService {
 
         FireViews.VerificationView latest = verificationRepository
                 .findFirstByIncidentIdOrderByCreatedAtDesc(incident.getId())
-                .map(FireIncidentService::toVerificationView)
+                .map(v -> toVerificationView(v, scenarioTypeOf(incident)))
                 .orElse(null);
 
         return new FireViews.IncidentDetail(
                 incident.getId(), incident.getIncidentNo(), incident.getTitle(),
-                incident.getStatus(), incident.getLevel(),
+                incident.getStatus(), incident.getLevel(), scenarioTypeOf(incident),
                 incident.getLatitude(), incident.getLongitude(),
                 incident.getFirstDetectedAt(), incident.getConfirmedAt(), incident.getResolvedAt(),
                 incident.getVerificationStatus(), incident.getFalseAlarm(), incident.getDescription(),
@@ -303,7 +323,11 @@ public class FireIncidentService {
 
     // ---------------- 4. F04 核验 ----------------
 
-    /** 核验请求体：{uavId?, missionId?, evidence:{rgb,thermal,temporal,spatial}（可空，默认 0.9/0.92/0.88/0.9）} */
+    /**
+     * 核验请求体：{uavId?, missionId?, evidence:{rgb,thermal,temporal,spatial}}。
+     * D2：evidence 缺省（null/空对象）时按 incident.extra.scenarioType 派生
+     * （FIRE→高证据，FALSE_ALARM→低证据）；显式提供时优先于派生（D1 行为）。
+     */
     public record VerificationRequest(String uavId, Object missionId, Map<String, Object> evidence) {
     }
 
@@ -319,15 +343,33 @@ public class FireIncidentService {
                     "verification only allowed from SUSPECTED/VERIFYING, current=" + current);
         }
 
+        // ---- 证据派生（D2 误报演示线）----
+        // body 显式提供 evidence（非空）→ 优先用请求值（保持 D1 行为，缺项补默认高证据）；
+        // body 未提供 → 按 incident.extra.scenarioType 派生：FIRE（或缺省）高证据（≈0.904→CONFIRMED），
+        // FALSE_ALARM 低证据（≈0.287<0.50→FALSE_ALARM）。
+        // 【MVP mock 模式决策】派生证据来自场景提示而非真实算法打分；阈值判定仍全部交
+        // AI Service（backend 不自行判阈值）；真实模型上线后由真实证据替代。
+        String scenarioType = scenarioTypeOf(incident);
+        boolean explicitEvidence = request != null && request.evidence() != null
+                && !request.evidence().isEmpty();
         Map<String, Object> evidence = new LinkedHashMap<>();
-        for (Map.Entry<String, Double> e : DEFAULT_EVIDENCE.entrySet()) {
-            evidence.put(e.getKey(), e.getValue());
-        }
-        if (request != null && request.evidence() != null) {
+        String evidenceSource;
+        if (explicitEvidence) {
+            evidenceSource = "REQUEST";
+            for (Map.Entry<String, Double> e : DEFAULT_EVIDENCE.entrySet()) {
+                evidence.put(e.getKey(), e.getValue());
+            }
             for (Map.Entry<String, Object> e : request.evidence().entrySet()) {
                 if (e.getValue() instanceof Number n) {
                     evidence.put(e.getKey(), n.doubleValue());
                 }
+            }
+        } else {
+            evidenceSource = "SCENARIO_DERIVED";
+            Map<String, Double> base = SCENARIO_FALSE_ALARM.equals(scenarioType)
+                    ? FALSE_ALARM_SCENARIO_EVIDENCE : DEFAULT_EVIDENCE;
+            for (Map.Entry<String, Double> e : base.entrySet()) {
+                evidence.put(e.getKey(), e.getValue());
             }
         }
 
@@ -365,7 +407,9 @@ public class FireIncidentService {
         v.setResult(decision);                                          // result
         v.setVerifierType("AI_SERVICE");                                // verifier_type
         v.setVerifiedAt(now);                                           // verified_at
-        v.setRemark("taskId=" + taskId + "; weights=0.35/0.35/0.15/0.15"); // remark
+        v.setRemark("taskId=" + taskId + "; weights=0.35/0.35/0.15/0.15"
+                + "; evidenceSource=" + evidenceSource + "; scenarioType=" + scenarioType
+                + "; MVP mock 模式：证据派生自场景提示，真实模型上线后由真实证据替代"); // remark
         v.setCreatedAt(now);                                            // created_at NOT NULL
         verificationRepository.save(v);
 
@@ -384,7 +428,7 @@ public class FireIncidentService {
         incident.setUpdatedAt(now);
         incidentRepository.save(incident);
 
-        return toVerificationView(v, incident.getStatus());
+        return toVerificationView(v, incident.getStatus(), scenarioType, evidenceSource);
     }
 
     // ---------------- 5. 火点 / 检测手动接口 ----------------
@@ -542,6 +586,21 @@ public class FireIncidentService {
                 ? new LinkedHashMap<>() : new LinkedHashMap<>(incident.getExtra());
     }
 
+    /** extra.scenarioType（D2 误报演示线）；缺失按 FIRE（历史数据语义即 FIRE 线） */
+    static String scenarioTypeOf(FireIncidentEntity incident) {
+        Object v = incident.getExtra() == null ? null : incident.getExtra().get("scenarioType");
+        return v instanceof String s && !s.isBlank() ? s : SCENARIO_FIRE;
+    }
+
+    /** media.metadata.scenarioType 宽松归一：缺省/未知 → FIRE（media/ 包复用） */
+    public static String normalizeScenarioType(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return SCENARIO_FIRE;
+        }
+        String v = raw.trim().toUpperCase(Locale.ROOT);
+        return SCENARIO_FALSE_ALARM.equals(v) ? SCENARIO_FALSE_ALARM : SCENARIO_FIRE;
+    }
+
     /** bbox 宽松归一：对象 {x,y,width|w,height|h} 或数组 [x,y,w,h] → Map {x,y,width,height}（media/ 包复用） */
     public static Map<String, Object> bboxToMap(Object bbox) {
         if (bbox == null) {
@@ -629,7 +688,7 @@ public class FireIncidentService {
                 ? null : numberFromExtra(extra, "detectionCount").intValue();
         return new FireViews.IncidentSummary(
                 incident.getId(), incident.getIncidentNo(), incident.getTitle(),
-                incident.getStatus(), incident.getLevel(),
+                incident.getStatus(), incident.getLevel(), scenarioTypeOf(incident),
                 incident.getLatitude(), incident.getLongitude(),
                 latestConfidence, detectionCount,
                 incident.getFirstDetectedAt(), incident.getVerificationStatus(),
@@ -657,14 +716,18 @@ public class FireIncidentService {
                 d.getLatitude(), d.getLongitude(), d.getMediaId(), d.getDetectionTime());
     }
 
-    private static FireViews.VerificationView toVerificationView(FireVerificationEntity v) {
-        return toVerificationView(v, null);
+    private static FireViews.VerificationView toVerificationView(FireVerificationEntity v,
+                                                                 String scenarioType) {
+        return toVerificationView(v, null, scenarioType, null);
     }
 
-    private static FireViews.VerificationView toVerificationView(FireVerificationEntity v, String incidentStatus) {
+    private static FireViews.VerificationView toVerificationView(FireVerificationEntity v,
+                                                                 String incidentStatus,
+                                                                 String scenarioType,
+                                                                 String evidenceSource) {
         return new FireViews.VerificationView(
                 v.getId(), v.getIncidentId(), v.getResult(), v.getFinalScore(),
                 v.getRgbScore(), v.getThermalScore(), v.getTemporalScore(), v.getSpatialScore(),
-                incidentStatus, v.getVerifiedAt());
+                incidentStatus, v.getVerifiedAt(), scenarioType, evidenceSource);
     }
 }

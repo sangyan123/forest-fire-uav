@@ -66,7 +66,10 @@ public class MediaIngestService {
         this.aiServiceClient = aiServiceClient;
     }
 
-    /** ingest 结果（任务书要求 {detectionId, firePointId, incidentId, incidentStatus}，外加溯源字段） */
+    /**
+     * ingest 结果（任务书要求 {detectionId, firePointId, incidentId, incidentStatus}，外加溯源字段）。
+     * D2 误报演示线：scenarioType = media.metadata.scenarioType 归一值（FIRE/FALSE_ALARM，缺省 FIRE）。
+     */
     public record MediaIngestResult(
             String uavId,
             String protocolMediaId,
@@ -75,7 +78,8 @@ public class MediaIngestService {
             UUID firePointId,
             UUID incidentId,
             String incidentStatus,
-            boolean fireDetected
+            boolean fireDetected,
+            String scenarioType
     ) {
     }
 
@@ -92,16 +96,19 @@ public class MediaIngestService {
         String protocolMediaId = media.path("mediaId").asText(null);
         Instant capturedAt = parseInstant(media.path("capturedAt").asText(null), Instant.now());
         UavDeviceEntity device = resolveDevice(uavId, message);
+        // D2 误报演示线：场景提示随媒体传入（media.metadata.scenarioType），缺省 FIRE
+        String scenarioType = FireIncidentService.normalizeScenarioType(
+                media.path("metadata").path("scenarioType").asText(null));
 
         // ---- 1. 存 media_file ----
-        MediaFileEntity mf = saveMediaFile(device, message, media, mediaType, capturedAt);
+        MediaFileEntity mf = saveMediaFile(device, message, media, mediaType, capturedAt, scenarioType);
 
         // ---- THERMAL_IMAGE 等非 RGB：只存媒体记录，不触发检测 ----
         if (!"RGB_IMAGE".equalsIgnoreCase(mediaType)) {
             log.debug("media {} type={} stored without detection pipeline",
                     mf.getId(), mediaType);
             return new MediaIngestResult(uavId, protocolMediaId, mf.getId(),
-                    null, null, null, null, false);
+                    null, null, null, null, false, scenarioType);
         }
 
         // ---- 2. F01 检测 ----
@@ -111,7 +118,7 @@ public class MediaIngestService {
         } catch (Exception e) {
             log.warn("AI detection failed for media {}: {}", mf.getId(), e.getMessage());
             return new MediaIngestResult(uavId, protocolMediaId, mf.getId(),
-                    null, null, null, null, false);
+                    null, null, null, null, false, scenarioType);
         }
         AiServiceClient.DetectionItem best = detections.stream()
                 .reduce((a, b) -> b.confidence() >= a.confidence() ? b : a)
@@ -119,7 +126,7 @@ public class MediaIngestService {
         if (best == null || best.confidence() < FireIncidentService.T_ALERT) {
             // 未过 T_alert（0.60）：只留媒体记录
             return new MediaIngestResult(uavId, protocolMediaId, mf.getId(),
-                    null, null, null, null, false);
+                    null, null, null, null, false, scenarioType);
         }
 
         // ---- fire_detection 行 ----
@@ -143,7 +150,7 @@ public class MediaIngestService {
             // 无拍摄坐标无法定位（AI mock 会回落默认坐标，属脏数据），仅保留检测记录
             log.warn("media {} has no position, skip fire point/incident", mf.getId());
             return new MediaIngestResult(uavId, protocolMediaId, mf.getId(),
-                    detection.getId(), null, null, null, true);
+                    detection.getId(), null, null, null, true, scenarioType);
         }
         AiServiceClient.LocalizationResult loc;
         try {
@@ -179,13 +186,13 @@ public class MediaIngestService {
         detection.setGeometry(point.getGeometry());
         detectionRepository.save(detection);
 
-        // ---- 4. 去重 / 事件登记（100m/120s） ----
+        // ---- 4. 去重 / 事件登记（100m/120s；D2：scenarioType 随之写入 incident.extra） ----
         FireIncidentService.IncidentAttachResult attach =
-                fireIncidentService.attachPointToIncident(point, detection.getConfidence());
+                fireIncidentService.attachPointToIncident(point, detection.getConfidence(), scenarioType);
 
         return new MediaIngestResult(uavId, protocolMediaId, mf.getId(),
                 detection.getId(), point.getId(), attach.incident().getId(),
-                attach.incident().getStatus(), true);
+                attach.incident().getStatus(), true, scenarioType);
     }
 
     // ---------------- 内部工具 ----------------
@@ -210,7 +217,8 @@ public class MediaIngestService {
     }
 
     private MediaFileEntity saveMediaFile(UavDeviceEntity device, JsonNode message,
-                                          JsonNode media, String mediaType, Instant capturedAt) {
+                                          JsonNode media, String mediaType, Instant capturedAt,
+                                          String scenarioType) {
         String url = media.path("url").asText(null);
         String format = media.path("format").asText(null);
         Instant now = Instant.now();
@@ -232,15 +240,17 @@ public class MediaIngestService {
         mf.setGeometry(GeoUtils.toPoint(lat, lon));             // geometry
         mf.setWidth(intOrNull(media, "width"));                 // width
         mf.setHeight(intOrNull(media, "height"));               // height
-        mf.setMetadata(buildMetadata(message, media, url));     // metadata JSONB
+        mf.setMetadata(buildMetadata(message, media, url, scenarioType)); // metadata JSONB
         mf.setCreatedAt(now);                                   // created_at NOT NULL
         return mediaFileRepository.save(mf);
     }
 
-    /** metadata：消息头 + 拍摄参数 + 协议 mediaId/url 宽松留存 */
-    private Map<String, Object> buildMetadata(JsonNode message, JsonNode media, String url) {
+    /** metadata：消息头 + 拍摄参数 + 协议 mediaId/url + 场景提示（D2）宽松留存 */
+    private Map<String, Object> buildMetadata(JsonNode message, JsonNode media, String url,
+                                              String scenarioType) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         putIfNotNull(metadata, "protocolMediaId", media.path("mediaId").asText(null));
+        metadata.put("scenarioType", scenarioType);
         putIfNotNull(metadata, "messageId", message.path("messageId").asText(null));
         putIfNotNull(metadata, "messageType", message.path("messageType").asText(null));
         putIfNotNull(metadata, "source", message.path("source").asText(null));

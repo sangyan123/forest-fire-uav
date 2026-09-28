@@ -16,10 +16,10 @@ import {
   startMission,
   stopFireScenario,
 } from './api'
-import { parseIncidents, parseVerification, zhDecision, zhFireStatus } from './fire'
+import { parseIncidents, parseVerification, parseStatusHistory, appendTimelinePoint, sortIncidentsForDisplay, zhDecision, zhFireStatus } from './fire'
 import { TERMINAL_CMD_STATUSES, zhCmdStatus, zhCmdType } from './labels'
 import { pushToast } from './toast'
-import type { CommandType, FireIncident, GotoPayload, TrackedCommand, UavState, VerificationResult } from './types'
+import type { CommandType, FireIncident, GotoPayload, StatusPoint, TrackedCommand, UavState, VerificationResult } from './types'
 
 const DEVICE_ID = 'UAV-001'
 const STATE_POLL_MS = 1000
@@ -50,14 +50,41 @@ let focusSeq = 0
 const verifications = ref<Record<string, VerificationResult>>({})
 const dispatched = ref<Record<string, string>>({})
 const busy = ref<{ incidentId: string; action: 'verify' | 'dispatch' } | null>(null)
+/** 状态时间线（事件 id -> 已知状态变化序列；后端无历史字段时为会话内记录） */
+const timelines = ref<Record<string, StatusPoint[]>>({})
 
 const knownIncidentIds = new Set<string>()
+
+/** 依据轮询结果维护状态时间线：后端历史优先，否则本地记录 */
+function recordTimelines(list: FireIncident[]): void {
+  for (const inc of list) {
+    const backend = parseStatusHistory(inc.raw)
+    const prev = timelines.value[inc.id]
+    if (backend !== null) {
+      // 后端透出历史：整段采用；若末点之后本地还记录过更晚状态则续接
+      let merged = backend
+      const lastLocal = prev?.[prev.length - 1]
+      if (lastLocal && backend[backend.length - 1]?.status !== lastLocal.status) {
+        merged = appendTimelinePoint(merged, lastLocal.status, lastLocal.at ?? Date.now(), 'local')
+      }
+      timelines.value[inc.id] = merged
+      continue
+    }
+    if (!prev || prev.length === 0) {
+      timelines.value[inc.id] = [{ status: inc.status, at: Date.now(), source: 'local' }]
+      continue
+    }
+    const next = appendTimelinePoint(prev, inc.status, Date.now(), 'local')
+    if (next !== prev) timelines.value[inc.id] = next
+  }
+}
 
 async function pollIncidents(): Promise<void> {
   try {
     const raw = await getFireIncidents()
     const list = parseIncidents(raw)
-    incidents.value = list
+    recordTimelines(list)
+    incidents.value = sortIncidentsForDisplay(list)
     for (const inc of list) knownIncidentIds.add(inc.id)
     // 注入场景后首次发现新事件 -> 解除按钮 loading
     if (scenarioLoading.value && scenarioSnapshot !== null) {
@@ -71,13 +98,18 @@ async function pollIncidents(): Promise<void> {
 
 /* ---------------- 注入/停止演示场景 ---------------- */
 
+type ScenarioVerdict = 'CONFIRMED' | 'FALSE_ALARM'
+
 const scenarioActive = ref(false)
 const scenarioLoading = ref(false)
+/** 正在等待事件生成的场景走向（决定哪个按钮转 loading） */
+const scenarioPendingVerdict = ref<ScenarioVerdict | null>(null)
 let scenarioSnapshot: Set<string> | null = null
 let scenarioWaitToken = 0
 
 function resolveScenarioWait(found: boolean): void {
   scenarioLoading.value = false
+  scenarioPendingVerdict.value = null
   scenarioSnapshot = null
   scenarioWaitToken++
   if (found) {
@@ -85,38 +117,46 @@ function resolveScenarioWait(found: boolean): void {
   }
 }
 
-async function onToggleScenario(): Promise<void> {
-  if (scenarioLoading.value) return
-  if (!scenarioActive.value) {
-    try {
-      await startFireScenario()
-    } catch (e) {
-      pushToast('error', `注入火情场景失败：${e instanceof Error ? e.message : '未知错误'}`)
-      return
-    }
-    scenarioActive.value = true
-    pushToast('info', '已注入，无人机前往核查')
-    // loading 直到事件列表出现新事件，或超时兜底
-    scenarioLoading.value = true
-    scenarioSnapshot = new Set(knownIncidentIds)
-    const token = ++scenarioWaitToken
-    window.setTimeout(() => {
-      if (scenarioLoading.value && token === scenarioWaitToken) {
-        resolveScenarioWait(false)
-        pushToast('info', '暂未在事件列表中看到新事件，可稍后继续观察')
-      }
-    }, SCENARIO_WAIT_TIMEOUT_MS)
-    void pollIncidents()
-  } else {
-    try {
-      await stopFireScenario()
-    } catch (e) {
-      pushToast('error', `停止场景失败：${e instanceof Error ? e.message : '未知错误'}`)
-      return
-    }
-    scenarioActive.value = false
-    pushToast('info', '演示场景已停止')
+async function onStartScenario(verdict: ScenarioVerdict): Promise<void> {
+  if (scenarioLoading.value || scenarioActive.value) return
+  try {
+    await startFireScenario({ verdict })
+  } catch (e) {
+    pushToast(
+      'error',
+      `注入${verdict === 'FALSE_ALARM' ? '误报演示' : '火情'}场景失败：${e instanceof Error ? e.message : '未知错误'}`,
+    )
+    return
   }
+  scenarioActive.value = true
+  pushToast(
+    'info',
+    verdict === 'FALSE_ALARM' ? '已注入误报演示场景，无人机前往核查' : '已注入火情场景，无人机前往核查',
+  )
+  // loading 直到事件列表出现新事件，或超时兜底
+  scenarioLoading.value = true
+  scenarioPendingVerdict.value = verdict
+  scenarioSnapshot = new Set(knownIncidentIds)
+  const token = ++scenarioWaitToken
+  window.setTimeout(() => {
+    if (scenarioLoading.value && token === scenarioWaitToken) {
+      resolveScenarioWait(false)
+      pushToast('info', '暂未在事件列表中看到新事件，可稍后继续观察')
+    }
+  }, SCENARIO_WAIT_TIMEOUT_MS)
+  void pollIncidents()
+}
+
+async function onStopScenario(): Promise<void> {
+  if (!scenarioActive.value) return
+  try {
+    await stopFireScenario()
+  } catch (e) {
+    pushToast('error', `停止场景失败：${e instanceof Error ? e.message : '未知错误'}`)
+    return
+  }
+  scenarioActive.value = false
+  pushToast('info', '演示场景已停止')
 }
 
 /* ---------------- 事件卡片动作 ---------------- */
@@ -141,8 +181,12 @@ async function onVerify(id: string): Promise<void> {
     const raw = await postIncidentVerification(id)
     const v = parseVerification(raw)
     verifications.value = { ...verifications.value, [id]: v }
-    if (v.decision) {
-      const conf = v.confidence !== null ? `（置信度 ${v.confidence}%）` : ''
+    const conf = v.confidence !== null ? `（置信度 ${v.confidence}%）` : ''
+    if (v.decision === 'FALSE_ALARM') {
+      pushToast('success', `已排除误报，无需出动${conf}`)
+    } else if (v.decision === 'CONFIRMED' || v.decision === 'FIRE_CONFIRMED' || v.decision === 'TRUE_ALARM') {
+      pushToast('success', `已确认火情，保持跟踪处置${conf}`)
+    } else if (v.decision) {
       pushToast('success', `AI 核验完成：${zhDecision(v.decision)}${conf}`)
     } else {
       pushToast('info', '核验已触发，后端未返回明确结论')
@@ -323,16 +367,31 @@ onUnmounted(() => {
         森林防火无人机智能系统 <small>Demo · Vue 3 + Leaflet</small>
       </div>
       <div class="topbar-right">
-        <button
-          class="fire-btn"
-          :class="{ active: scenarioActive, loading: scenarioLoading }"
-          :disabled="scenarioLoading"
-          @click="onToggleScenario"
-        >
+        <template v-if="!scenarioActive">
+          <button
+            class="fire-btn"
+            :class="{ loading: scenarioLoading }"
+            :disabled="scenarioLoading"
+            @click="onStartScenario('CONFIRMED')"
+          >
+            <span v-if="scenarioLoading && scenarioPendingVerdict === 'CONFIRMED'" class="spinner"></span>
+            <template v-if="scenarioLoading && scenarioPendingVerdict === 'CONFIRMED'">等待火情事件生成…</template>
+            <template v-else>🔥 火情场景</template>
+          </button>
+          <button
+            class="fire-btn warn"
+            :class="{ loading: scenarioLoading }"
+            :disabled="scenarioLoading"
+            @click="onStartScenario('FALSE_ALARM')"
+          >
+            <span v-if="scenarioLoading && scenarioPendingVerdict === 'FALSE_ALARM'" class="spinner"></span>
+            <template v-if="scenarioLoading && scenarioPendingVerdict === 'FALSE_ALARM'">等待误报事件生成…</template>
+            <template v-else>⚠️ 误报场景</template>
+          </button>
+        </template>
+        <button v-else class="fire-btn stop" :disabled="scenarioLoading" @click="onStopScenario">
           <span v-if="scenarioLoading" class="spinner"></span>
-          <template v-if="scenarioLoading">等待火情事件生成…</template>
-          <template v-else-if="scenarioActive">■ 停止场景</template>
-          <template v-else>🔥 注入火情场景</template>
+          ■ 停止场景
         </button>
         <div class="conn" :class="connectionLost ? 'bad' : 'ok'">
           <span class="dot"></span>
@@ -350,6 +409,7 @@ onUnmounted(() => {
         :verifications="verifications"
         :dispatched="dispatched"
         :busy="busy"
+        :timelines="timelines"
         @goto="onGoto"
         @select-incident="onSelectFromMap"
         @verify="onVerify"

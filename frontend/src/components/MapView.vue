@@ -5,12 +5,13 @@ import {
   fireStatusColor,
   fireStatusPulse,
   formatCoords,
+  isFalseAlarmDemo,
   nextFireStatuses,
   relTimeText,
   zhDecision,
   zhFireStatus,
 } from '../fire'
-import type { FireIncident, GotoPayload, UavState, VerificationResult } from '../types'
+import type { FireIncident, GotoPayload, StatusPoint, UavState, VerificationResult } from '../types'
 
 const props = defineProps<{
   state: UavState | null
@@ -25,6 +26,8 @@ const props = defineProps<{
   dispatched: Record<string, string>
   /** 当前进行中的卡片动作 */
   busy: { incidentId: string; action: 'verify' | 'dispatch' } | null
+  /** 状态时间线（incidentId -> 状态变化序列） */
+  timelines: Record<string, StatusPoint[]>
 }>()
 
 const emit = defineEmits<{
@@ -83,6 +86,15 @@ const cardBusyDispatch = computed(
   () => props.busy?.action === 'dispatch' && props.busy.incidentId === openCardId.value,
 )
 const cardTerminated = computed(() => cardStatus.value === 'CLOSED')
+const cardIsFalseAlarm = computed(() => isFalseAlarmDemo(cardIncident.value))
+const cardTimeline = computed<StatusPoint[]>(() => {
+  const inc = cardIncident.value
+  if (!inc) return []
+  return props.timelines[inc.id] ?? []
+})
+const cardTimelineLocalOnly = computed(
+  () => cardTimeline.value.length > 0 && cardTimeline.value.every((p) => p.source === 'local'),
+)
 
 let map: L.Map | null = null
 let marker: L.Marker | null = null
@@ -186,6 +198,16 @@ function onStatusSelect(): void {
   emit('status-change', inc.id, target)
 }
 
+/** 状态变化时的一次性闪烁/放大反馈（1.2s 动画，结束后自动还原，不常驻） */
+function triggerFlash(m: L.Marker): void {
+  const el = m.getElement()?.querySelector<HTMLElement>('.fire-marker')
+  if (!el) return
+  el.classList.remove('fire-flash')
+  void el.offsetWidth // 强制 reflow，保证重复触发
+  el.classList.add('fire-flash')
+  window.setTimeout(() => el.classList.remove('fire-flash'), 1600)
+}
+
 /** 事件列表变化：增/改/删 marker */
 function syncFireMarkers(): void {
   if (!map) return
@@ -198,10 +220,11 @@ function syncFireMarkers(): void {
       existing.setLatLng([inc.latitude, inc.longitude])
       const el = existing.getElement()?.querySelector<HTMLElement>('.fire-marker')
       if (!el || el.dataset.status !== inc.status) {
-        // 状态变化时重建 icon（颜色/脉冲随之变化）
+        // 状态变化时重建 icon（颜色/脉冲随之变化）并闪烁一次
         existing.setIcon(fireIcon(inc))
         const el2 = existing.getElement()?.querySelector<HTMLElement>('.fire-marker')
         if (el2) el2.dataset.status = inc.status
+        triggerFlash(existing)
       }
     } else {
       const m = L.marker([inc.latitude, inc.longitude], {
@@ -211,6 +234,7 @@ function syncFireMarkers(): void {
       m.on('click', () => onFireMarkerClick(inc))
       const el = m.getElement()?.querySelector<HTMLElement>('.fire-marker')
       if (el) el.dataset.status = inc.status
+      triggerFlash(m)
       fireMarkers.set(inc.id, m)
     }
   }
@@ -357,13 +381,16 @@ onUnmounted(() => {
       :style="cardPos ? { left: `${cardPos.x}px`, top: `${cardPos.y}px` } : { display: 'none' }"
     >
       <div class="ic-head">
-        <span
-          class="chip fire-chip"
-          :class="`fs-${cardStatus || 'OTHER'}`"
-          :style="{ '--fire-color': fireStatusColor(cardStatus) }"
-        >
-          🔥 {{ zhFireStatus(cardStatus) }}
-        </span>
+        <div class="ic-chips">
+          <span
+            class="chip fire-chip"
+            :class="`fs-${cardStatus || 'OTHER'}`"
+            :style="{ '--fire-color': fireStatusColor(cardStatus) }"
+          >
+            {{ cardIsFalseAlarm ? '⚠️' : '🔥' }} {{ zhFireStatus(cardStatus) }}
+          </span>
+          <span v-if="cardIsFalseAlarm" class="ic-demo-badge">误报演示</span>
+        </div>
         <button class="ic-close" title="关闭" @click="closeCard">✕</button>
       </div>
       <div class="ic-no">{{ cardIncident.incidentNo }}</div>
@@ -373,7 +400,7 @@ onUnmounted(() => {
         <b>{{ cardIncident.confidence === null ? '—' : `${cardIncident.confidence}%` }}</b>
       </div>
       <div class="kv"><span>检测时间</span><b>{{ relTimeText(cardIncident.timeMs, now) }}</b></div>
-      <div v-if="cardVerification" class="ic-verdict">
+      <div class="ic-verdict" :class="{ false: cardVerification.decision === 'FALSE_ALARM' }" v-if="cardVerification">
         AI 核验：<b>{{ zhDecision(cardVerification.decision) }}</b>
         <small v-if="cardVerification.confidence !== null">（置信度 {{ cardVerification.confidence }}%）</small>
       </div>
@@ -400,6 +427,24 @@ onUnmounted(() => {
           </option>
           <option v-for="s in cardNexts" :key="s" :value="s">{{ zhFireStatus(s) }}</option>
         </select>
+      </div>
+      <div v-if="cardTimeline.length" class="ic-timeline">
+        <div class="ic-tl-head">
+          状态时间线
+          <small v-if="cardTimelineLocalOnly">（会话内记录）</small>
+        </div>
+        <div class="ic-tl-chips">
+          <span
+            v-for="(p, i) in cardTimeline"
+            :key="`${p.status}-${i}`"
+            class="tl-chip"
+            :class="{ latest: i === cardTimeline.length - 1 }"
+            :style="{ '--fire-color': fireStatusColor(p.status) }"
+            :title="p.at !== null ? new Date(p.at).toLocaleTimeString('zh-CN', { hour12: false }) : ''"
+          >
+            {{ zhFireStatus(p.status) }}
+          </span>
+        </div>
       </div>
     </div>
   </div>
