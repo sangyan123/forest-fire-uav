@@ -5,6 +5,7 @@ on:
     branches: [main, develop, 'feature/**', 'fix/**', 'release/**']
   pull_request:
     branches: [main, develop]
+  workflow_dispatch:   # 允许在 Actions 页面手动重跑
 
 jobs:
   # -------------------------------------------------------------------
@@ -73,11 +74,15 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install
-        run: pip install -r ai-service/requirements.txt
+        run: pip install -r ai-service/requirements.txt ruff pytest
       - name: Lint + Test
         run: |
           ruff check ai-service
-          pytest ai-service
+          # 无测试文件时 pytest 退出码为 5，视为通过（MVP 阶段暂无测试）
+          pytest ai-service -q
+          code=$?
+          if [ $code -ne 0 ] && [ $code -ne 5 ]; then exit $code; fi
+          if [ $code -eq 5 ]; then echo "no tests collected, skip"; fi
 
   # -------------------------------------------------------------------
   # Frontend（Vue 3 / TypeScript）—— 代码落地后自动激活
