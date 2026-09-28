@@ -143,8 +143,10 @@ interface ScenarioMeta {
   label: string
   /** 附加配色类 */
   css: string
-  /** 期望的新事件 scenarioType；null=无需等待（scenario-01） */
+  /** 期望的新事件 scenarioType；null=无需等待新事件 */
   waitType: 'CONFIRMED' | 'FALSE_ALARM' | null
+  /** 按钮 loading 中的文案 */
+  pendingLabel: string
   startToast: string
   foundToast: string
 }
@@ -155,6 +157,7 @@ const SCENARIOS: ScenarioMeta[] = [
     label: '▶ Scenario-01 正常巡检',
     css: 'patrol',
     waitType: null,
+    pendingLabel: '巡检启动中…',
     startToast: '已恢复正常巡检',
     foundToast: '',
   },
@@ -163,6 +166,7 @@ const SCENARIOS: ScenarioMeta[] = [
     label: '🔥 Scenario-02 火情发现',
     css: '',
     waitType: 'CONFIRMED',
+    pendingLabel: '等待事件生成…',
     startToast: '已注入火情场景，无人机前往核查',
     foundToast: '火情事件已生成，无人机前往核查',
   },
@@ -171,8 +175,27 @@ const SCENARIOS: ScenarioMeta[] = [
     label: '⚠️ Scenario-04 误报',
     css: 'warn',
     waitType: 'FALSE_ALARM',
+    pendingLabel: '等待事件生成…',
     startToast: '已注入误报演示场景，无人机前往核查',
     foundToast: '误报事件已生成，无人机前往核查',
+  },
+  {
+    id: 'scenario-05',
+    label: '📈 Scenario-05 火势扩大',
+    css: 'expand',
+    waitType: null,
+    pendingLabel: '演示进行中…',
+    startToast: '火势扩大演示开始',
+    foundToast: '',
+  },
+  {
+    id: 'scenario-06',
+    label: '📡 Scenario-06 UAV断联',
+    css: 'linkloss',
+    waitType: null,
+    pendingLabel: '断联演示中…',
+    startToast: '断联演示开始，等待无人机进入盲区',
+    foundToast: '',
   },
 ]
 
@@ -205,6 +228,14 @@ async function onStartScenario(id: string): Promise<void> {
   }
   currentScenarioId.value = id // 本地置位，高亮即时反馈；轮询随后校正
   pushToast('info', meta.startToast)
+  if (id === 'scenario-05') {
+    await runFireSpreadDemo()
+    return
+  }
+  if (id === 'scenario-06') {
+    await runCommsLossDemo()
+    return
+  }
   if (meta.waitType === null) return // scenario-01 无需等待新事件
   scenarioPending.value = id
   scenarioSnapshot = new Set(knownIncidentIds)
@@ -216,6 +247,103 @@ async function onStartScenario(id: string): Promise<void> {
     }
   }, SCENARIO_WAIT_TIMEOUT_MS)
   void pollIncidents()
+}
+
+/**
+ * Scenario-05 火势扩大：编排一场"自动两轮火场分析"。
+ * 无 CONFIRMED/TRACKING 事件则先自动走 scenario-02 流程（等待事件+核验确认），
+ * 然后间隔 3 秒连续两次 analysis，让扩散年轮与趋势面板自动上演。
+ */
+async function runFireSpreadDemo(): Promise<void> {
+  scenarioPending.value = 'scenario-05'
+  const token = ++scenarioWaitToken
+  const cancelled = () => scenarioPending.value !== 'scenario-05' || token !== scenarioWaitToken
+  try {
+    let incident: FireIncident | undefined = incidents.value.find((i) => i.status === 'CONFIRMED' || i.status === 'TRACKING')
+    if (!incident) {
+      pushToast('info', '先注入火情场景，等待事件确认…')
+      try {
+        await startScenario('scenario-02')
+      } catch (e) {
+        pushToast('error', `火情注入失败：${e instanceof Error ? e.message : '未知错误'}`)
+        return
+      }
+      incident = await waitForVerifiedIncident(90000, cancelled)
+      if (!incident) {
+        if (!cancelled()) pushToast('info', '未在时限内等到确认事件，请先注入火情再试')
+        return
+      }
+    }
+    if (cancelled()) return
+    pushToast('info', '火势扩大演示：第 1 轮火场分析')
+    await postIncidentAnalysis(incident.id)
+    if (cancelled()) return
+    window.setTimeout(() => {
+      if (cancelled()) return
+      void (async () => {
+        try {
+          pushToast('info', '火势扩大演示：第 2 轮火场分析（火场范围扩大）')
+          await postIncidentAnalysis(incident.id)
+          void loadPolygons(incident.id)
+        } catch (e) {
+          pushToast('error', `分析失败：${e instanceof Error ? e.message : '未知错误'}`)
+        }
+      })()
+    }, 3000)
+  } finally {
+    if (scenarioPending.value === 'scenario-05' && token === scenarioWaitToken) {
+      scenarioPending.value = null
+      scenarioSnapshot = null
+    }
+  }
+}
+
+/** 等待出现 CONFIRMED/TRACKING 事件（轮询列表；取消回调命中返回 undefined） */
+async function waitForVerifiedIncident(timeoutMs: number, cancelled: () => boolean): Promise<FireIncident | undefined> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline && !cancelled()) {
+    await pollIncidents()
+    const found = incidents.value.find((i) => i.status === 'CONFIRMED' || i.status === 'TRACKING')
+    if (found) return found
+    await new Promise((r) => setTimeout(r, 3000))
+  }
+  return undefined
+}
+
+/**
+ * Scenario-06 UAV断联：监听 1Hz 状态轮询，
+ * 状态变 OFFLINE → toast 警告；恢复 AIRBORNE → toast 通信恢复。最长 40s 兜底。
+ */
+async function runCommsLossDemo(): Promise<void> {
+  scenarioPending.value = 'scenario-06'
+  const token = ++scenarioWaitToken
+  const cancelled = () => scenarioPending.value !== 'scenario-06' || token !== scenarioWaitToken
+  const deadline = Date.now() + 40000
+  let announcedLoss = false
+  let announcedRecovery = false
+  while (Date.now() < deadline && !cancelled()) {
+    try {
+      const state = await getUavState('UAV-001')
+      const status = String((state as unknown as { status?: string })?.status ?? '')
+      if (status === 'OFFLINE' && !announcedLoss) {
+        announcedLoss = true
+        pushToast('warning', '⚠️ 无人机进入盲区，连接丢失——等待通信恢复')
+      }
+      if (announcedLoss && status !== 'OFFLINE' && !announcedRecovery) {
+        announcedRecovery = true
+        pushToast('success', '✅ 通信恢复，遥测数据续传')
+      }
+      if (announcedRecovery) break
+    } catch {
+      // 单次失败静默重试
+    }
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+  if (scenarioPending.value === 'scenario-06' && token === scenarioWaitToken) {
+    scenarioPending.value = null
+    scenarioSnapshot = null
+    if (!announcedLoss) pushToast('info', '断联演示结束，未观测到离线状态（可重试）')
+  }
 }
 
 /** 2s 轮询模拟器状态，用 currentScenarioId 校正高亮；等待期间以本地置位为准 */

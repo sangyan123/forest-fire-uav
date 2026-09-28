@@ -34,6 +34,8 @@
 
 | 2026-09-28 | D4：演示固化（场景注册表+状态历史+重置脚本+讲稿） | mock-uav 场景注册表（POST /simulator/scenarios/{scenarioId}/start：scenario-01正常巡检幂等/scenario-02火情发现/scenario-04误报，未知号40001，currentScenarioId透出，22项断言）；backend fire_incident.extra.statusHistory状态历史（recordStatusChange统一入口覆盖创建/PATCH/核验全部5条路径，列表5条详情全量，scenarioType等extra字段保留）；frontend 顶栏三场景按钮（currentScenarioId驱动高亮+2s轮询校正+按scenarioType等待各自事件）、时间线自动切换后端历史（顺手修复D2遗留的时间线合并bug）；新增scripts/reset-demo.sql+.sh（一键清空演示数据+mock-uav电量回满）与docs/demo/客户演示讲稿.md（5分钟剧本/备答/风险应对）；**D4端到端验收**：reset→scenario-02→自动发现→statusHistory=[SUSPECTED]→核验CONFIRMED→[S,V,C]→PATCH→[+TRACKING]→scenario-04→FALSE_ALARM(0.287)→[S,V,F]→scenario-01恢复→未知号400→前端200 |
 
+| 2026-09-28 | D5：断联防线与离线化演示 | ai-service无改动；backend新增DeviceOfflineScheduler（@EnableScheduling，每5秒扫描，device.offline-timeout-seconds:15，一条批量UPDATE置OFFLINE；/state与列表OFFLINE覆盖；恢复路径零改动靠ingest重映射）；mock-uav新增scenario-06断联序列（COMMUNICATION_LOST→静默→COMMUNICATION_RECOVERED→恢复，默认静默25s且MIN=25s——必须>平台15s阈值+5s扫描周期，集成时发现15s默认值导致平台来不及置离线已修正）、电量注入POST /simulator/uavs/{id}/battery（四级事件触发）、故障注入/failure（GPS_LOST等+RECOVER）；frontend切本地瓦片（frontend/public/tiles 363块，源Carto light_all——OSM官方源与国内镜像本机不可达，bbox钳制+透明占位+离线灰标+nginx同源代理/api//simulator/）、顶栏五场景按钮+scenario-05自动编排（无CONFIRMED事件则自动注入火情→等待确认→3s间隔两次analysis）、scenario-06监听（OFFLINE→警告toast→恢复→成功toast，40s兜底）；**D5端到端验收**：断联静默20s置OFFLINE→5s内自动恢复AIRBORNE、电量注入95恢复、未知uavId 40401、五按钮前端200、dist/tiles 363块随包发布 |
+
 ------
 
 ## 二、未决 Issue（按基线第71章流程登记）

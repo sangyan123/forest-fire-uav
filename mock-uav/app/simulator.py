@@ -27,8 +27,23 @@ Scenario registry (baseline ch.61 DEMO scenarios, POST /simulator/scenarios/{sce
   - scenario-01 正常巡检  -> stop the fire scenario / restore wayline patrol (idempotent)
   - scenario-02 火情发现  -> fire scenario, verdict CONFIRMED
   - scenario-04 误报      -> fire scenario, verdict FALSE_ALARM
-status.currentScenarioId reports the active registry id ("scenario-01" on normal patrol);
-the legacy /simulator/scenarios/fire/start|stop endpoints set it from their verdict too.
+  - scenario-06 UAV断联   -> COMMUNICATION_LOST -> silence (no MQTT publish at all,
+                            default 15 s, body {silenceSeconds} capped at 60 s)
+                            -> COMMUNICATION_RECOVERED -> 1 Hz patrol publishing resumes
+status.currentScenarioId reports the active registry id ("scenario-01" on normal patrol,
+"scenario-06" while the comms silence runs); the legacy /simulator/scenarios/fire/start|stop
+endpoints set it from their verdict too.
+
+Fault injection (REST, demo controls):
+  - POST /simulator/uavs/{uavId}/battery  body {percent 0..100} -> injects the battery level and
+    emits the four-level battery events (<=30 LOW_BATTERY, <=10 CRITICAL_BATTERY)
+  - POST /simulator/uavs/{uavId}/failure  body {type} -> emits a severity HIGH event for
+    GPS_LOST / RTK_LOST / CAMERA_ERROR / PAYLOAD_ERROR, or a recovery event (RTK_RECOVERED,
+    severity INFO) for type "RECOVER"
+During the scenario-06 silence every MQTT publish (state/telemetry/event/media, including
+REST-injected events) is suppressed; REST keeps answering and /simulator/status reports
+commsSilent=true plus resumeInSeconds. A running fire scenario pauses its capture timing
+during the silence and continues afterwards.
 """
 
 import asyncio
@@ -74,6 +89,25 @@ VERDICT_SCENARIO_TYPE = {"CONFIRMED": "FIRE", "FALSE_ALARM": "FALSE_ALARM"}
 # via their verdict so currentScenarioId stays consistent across both API styles.
 SCENARIO_ID_PATROL = "scenario-01"
 VERDICT_SCENARIO_ID = {"CONFIRMED": "scenario-02", "FALSE_ALARM": "scenario-04"}
+
+# Scenario-06 (baseline ch.62): UAV 断联演示 — COMMUNICATION_LOST, then a silence window with
+# no MQTT publishing at all, then COMMUNICATION_RECOVERED and the 1 Hz patrol resumes.
+SCENARIO_ID_COMMS_LOST = "scenario-06"
+DEFAULT_SILENCE_SECONDS = 25
+MAX_SILENCE_SECONDS = 60
+# 断联静默下限必须 > 平台离线阈值(15s)+扫描周期(5s)，否则平台来不及置 OFFLINE 通信就恢复了
+MIN_SILENCE_SECONDS = 25
+
+# Four-level battery thresholds (baseline ch.36 / uav-event.schema.json): LOW_BATTERY maps to
+# LOW_BATTERY_WARNING (30%), CRITICAL_BATTERY to CRITICAL (10%). Only these two levels have
+# UAV_EVENT types; the 25% / 20% levels are advisory only in the MVP.
+BATTERY_LOW_THRESHOLD = 30.0
+BATTERY_CRITICAL_THRESHOLD = 10.0
+
+# Fault injection types (POST /simulator/uavs/{uavId}/failure): the four failure event types
+# (severity HIGH) plus "RECOVER", which emits the recovery event (RTK_RECOVERED, INFO).
+FAILURE_TYPES = ("GPS_LOST", "RTK_LOST", "CAMERA_ERROR", "PAYLOAD_ERROR")
+FAILURE_RECOVER_TYPE = "RECOVER"
 
 M_PER_DEG_LAT = 111_320.0
 
@@ -162,6 +196,13 @@ class Simulator:
         self._capture_tick = 0
         self._rgb_since_thermal = 0
         self._media_count = 0
+
+        # scenario-06 comms silence (UAV 断联): while silent, no MQTT message is published
+        self._comms_silent = False
+        self._comms_silence_started_at = None  # time.monotonic() reference
+        self._comms_silence_seconds = 0
+        self._scenario_id_before_comms_lost = SCENARIO_ID_PATROL
+        self._last_failure_type = None  # last injected failure (RECOVER event context)
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -254,6 +295,9 @@ class Simulator:
             "verdict": self._fire_scenario["verdict"],
         }
         self._scenario_id = SCENARIO_ID_PATROL  # back to normal patrol
+        if self._comms_silent:
+            # scenario-06 silence running: patrol is also the scenario to resume into
+            self._scenario_id_before_comms_lost = SCENARIO_ID_PATROL
         self._speed_mps = CRUISE_SPEED_MPS
         self._target = None
         self._goto_started_at = None
@@ -262,6 +306,133 @@ class Simulator:
         self._flight_status = "FLYING"
         self._waypoint_index = self._nearest_waypoint_index()
         log.info("Fire scenario stopped; restored wayline patrol at %.1f m/s", CRUISE_SPEED_MPS)
+
+    # ------------------------------------------------------------------
+    # scenario-06: communication loss (customer demo)
+    # ------------------------------------------------------------------
+
+    def start_comms_lost_scenario(self, silence_seconds: int | None = None) -> None:
+        """Scenario-06 UAV 断联: COMMUNICATION_LOST -> silence -> COMMUNICATION_RECOVERED.
+
+        Publishes the COMMUNICATION_LOST UAV_EVENT (severity HIGH, data carries the last known
+        coordinates), then stops every MQTT publish (state/telemetry/event/media) for
+        ``silence_seconds`` (default DEFAULT_SILENCE_SECONDS=25, clamped to
+        [MIN_SILENCE_SECONDS, MAX_SILENCE_SECONDS]=[25, 60]). When the silence elapses the next tick publishes
+        COMMUNICATION_RECOVERED (severity INFO) first and then resumes the 1 Hz patrol.
+
+        Idempotent: calling again while already silent only resets the silence timer (no
+        duplicate COMMUNICATION_LOST). A running fire scenario keeps flying but its capture
+        timing pauses during the silence and continues afterwards.
+        """
+        seconds = DEFAULT_SILENCE_SECONDS if silence_seconds is None else int(silence_seconds)
+        seconds = max(MIN_SILENCE_SECONDS, min(MAX_SILENCE_SECONDS, seconds))
+        if self._comms_silent:
+            # idempotent re-entry: keep the saved pre-silence scenario, just reset the timer
+            self._comms_silence_seconds = seconds
+            self._comms_silence_started_at = time.monotonic()
+            log.info("Comms silence already active; timer reset to %ds", seconds)
+            return
+        self._scenario_id_before_comms_lost = self._scenario_id
+        self._publish_event(
+            "COMMUNICATION_LOST",
+            "HIGH",
+            {
+                "reason": "SCENARIO_06_COMMS_LOST",
+                "latitude": round(self._latitude, 6),
+                "longitude": round(self._longitude, 6),
+                "silenceSeconds": seconds,
+            },
+        )
+        self._comms_silent = True
+        self._comms_silence_seconds = seconds
+        self._comms_silence_started_at = time.monotonic()
+        self._scenario_id = SCENARIO_ID_COMMS_LOST
+        log.info("Scenario-06 started: COMMUNICATION_LOST published, MQTT silent for %ds", seconds)
+
+    def _resume_comms_if_due(self) -> bool:
+        """End the silence when its timer elapsed: COMMUNICATION_RECOVERED, then patrol resumes.
+
+        Runs at the top of every tick (before publishing), so the recovery event is always the
+        first message after the silence. Returns True on the tick that resumed.
+        """
+        if not self._comms_silent or self._comms_silence_started_at is None:
+            return False
+        elapsed = time.monotonic() - self._comms_silence_started_at
+        if elapsed < self._comms_silence_seconds:
+            return False
+        self._comms_silent = False
+        self._comms_silence_started_at = None
+        self._comms_silence_seconds = 0
+        # back to the scenario that was active before the silence (a fire scenario started
+        # during the silence keeps its own registry id)
+        self._scenario_id = (
+            VERDICT_SCENARIO_ID[self._fire_scenario["verdict"]]
+            if self._fire_scenario["active"]
+            else self._scenario_id_before_comms_lost
+        )
+        self._publish_event(
+            "COMMUNICATION_RECOVERED",
+            "INFO",
+            {
+                "reason": "SCENARIO_06_SILENCE_ELAPSED",
+                "latitude": round(self._latitude, 6),
+                "longitude": round(self._longitude, 6),
+            },
+        )
+        log.info("Scenario-06 finished: COMMUNICATION_RECOVERED published, 1 Hz patrol resumed")
+        return True
+
+    def _comms_resume_in_seconds(self) -> int:
+        """Remaining silence seconds (rounded up); 0 when not silent."""
+        if not self._comms_silent or self._comms_silence_started_at is None:
+            return 0
+        remaining = self._comms_silence_seconds - (time.monotonic() - self._comms_silence_started_at)
+        return max(0, math.ceil(remaining))
+
+    # ------------------------------------------------------------------
+    # fault injection (REST demo controls)
+    # ------------------------------------------------------------------
+
+    def inject_battery(self, percent: float) -> None:
+        """Inject the battery level (0..100, validated by the caller) and emit the level event.
+
+        Four-level thresholds (baseline ch.36): <= BATTERY_LOW_THRESHOLD (30) emits
+        LOW_BATTERY (severity HIGH), <= BATTERY_CRITICAL_THRESHOLD (10) emits
+        CRITICAL_BATTERY (severity CRITICAL); above 30 no event is emitted. The injected value
+        is carried by the following state/telemetry publishes (1 Hz drain continues from it).
+        """
+        value = min(100.0, max(0.0, float(percent)))
+        self._battery = value
+        if value <= BATTERY_CRITICAL_THRESHOLD:
+            self._publish_event("CRITICAL_BATTERY", "CRITICAL", {"battery": round(value, 1)})
+        elif value <= BATTERY_LOW_THRESHOLD:
+            self._publish_event("LOW_BATTERY", "HIGH", {"battery": round(value, 1)})
+        log.info("Battery injected: %.1f%% (low<=%.0f, critical<=%.0f)",
+                 value, BATTERY_LOW_THRESHOLD, BATTERY_CRITICAL_THRESHOLD)
+
+    def inject_failure(self, failure_type: str) -> None:
+        """Inject a fault: emit the matching severity HIGH UAV_EVENT.
+
+        ``failure_type`` must be one of FAILURE_TYPES (GPS_LOST / RTK_LOST /
+        CAMERA_ERROR / PAYLOAD_ERROR) or "RECOVER", which emits the recovery event
+        (RTK_RECOVERED, severity INFO; COMMUNICATION_RECOVERED is reserved for the scenario-06
+        comms recovery). Unknown types raise ValueError.
+        """
+        kind = str(failure_type).strip().upper()
+        if kind == FAILURE_RECOVER_TYPE:
+            recovered_from = self._last_failure_type or "UNKNOWN"
+            self._last_failure_type = None
+            self._publish_event(
+                "RTK_RECOVERED", "INFO", {"reason": "FAULT_RECOVERED", "recoveredFrom": recovered_from}
+            )
+            log.info("Failure recovery injected: RTK_RECOVERED (recoveredFrom=%s)", recovered_from)
+            return
+        if kind not in FAILURE_TYPES:
+            raise ValueError(f"failure type must be one of {FAILURE_TYPES + (FAILURE_RECOVER_TYPE,)}, "
+                             f"got: {failure_type!r}")
+        self._last_failure_type = kind
+        self._publish_event(kind, "HIGH", {"reason": "FAULT_INJECTED_VIA_REST"})
+        log.info("Failure injected: %s (severity HIGH)", kind)
 
     async def _run_loop(self) -> None:
         log.info("Simulation loop running at %.1f Hz (speed %.1f m/s)", 1.0 / TICK_SECONDS, CRUISE_SPEED_MPS)
@@ -393,6 +564,10 @@ class Simulator:
     # ------------------------------------------------------------------
 
     def _tick(self) -> None:
+        # scenario-06: end the comms silence first so COMMUNICATION_RECOVERED is published
+        # before this tick's state/telemetry (recovery event always comes first)
+        self._resume_comms_if_due()
+
         self._moving = False
         if self._flight_status not in ("PAUSED", "LANDED"):
             if self._fire_scenario["active"]:
@@ -417,6 +592,11 @@ class Simulator:
 
         self._battery = max(BATTERY_FLOOR, self._battery - BATTERY_DRAIN_PER_TICK)
 
+        if self._comms_silent:
+            # scenario-06 silence: the simulation keeps running internally but nothing is
+            # published on MQTT (state/telemetry/event/media all suppressed, see _publish)
+            return
+
         self._publish_state()
         self._publish_telemetry()
 
@@ -439,6 +619,9 @@ class Simulator:
                          self._latitude, self._longitude)
         else:
             # hovering over the fire point: one UAV_MEDIA every MEDIA_CAPTURE_INTERVAL_TICKS ticks
+            if self._comms_silent:
+                # scenario-06 silence: pause the capture timing, continue after recovery
+                return
             self._capture_tick += 1
             if self._capture_tick % MEDIA_CAPTURE_INTERVAL_TICKS == 0:
                 media_type = (
@@ -676,6 +859,21 @@ class Simulator:
 
     def _publish_fire_scenario_event(self, fire_lat: float, fire_lon: float) -> None:
         """Publish the MISSION_STARTED UAV_EVENT announcing the fire scenario."""
+        self._publish_event(
+            "MISSION_STARTED",
+            "INFO",
+            {
+                "scenarioType": "FIRE",
+                "latitude": fire_lat,
+                "longitude": fire_lon,
+            },
+        )
+
+    def _publish_event(self, event_type: str, severity: str, data: dict | None = None) -> None:
+        """Publish one UAV_EVENT on uav/{deviceId}/event (structure per uav-event.json).
+
+        severity follows the four alarm levels (INFO / WARNING / HIGH / CRITICAL).
+        """
         self._sequence += 1
         message = {
             "schemaVersion": "1.0",
@@ -687,19 +885,20 @@ class Simulator:
             "sequence": self._sequence,
             "event": {
                 "eventId": f"EVENT-{uuid.uuid4().hex[:8]}",
-                "eventType": "MISSION_STARTED",
-                "severity": "INFO",
-                "data": {
-                    "scenarioType": "FIRE",
-                    "latitude": fire_lat,
-                    "longitude": fire_lon,
-                },
+                "eventType": event_type,
+                "severity": severity,
+                "data": data or {},
             },
         }
         self._publish(f"uav/{DEVICE_ID}/event", message)
-        log.info("UAV_EVENT published: MISSION_STARTED (fire scenario at %.6f, %.6f)", fire_lat, fire_lon)
+        log.info("UAV_EVENT published: %s (severity=%s) data=%s", event_type, severity, data or {})
 
     def _publish(self, topic: str, message: dict) -> None:
+        if self._comms_silent:
+            # scenario-06 silence: stop every MQTT publish (state/telemetry/event/media,
+            # including REST-injected events and command results) until recovery
+            log.debug("Comms silence active; dropped message on %s", topic)
+            return
         if self._client is None:
             log.warning("MQTT client not ready; dropped message on %s", topic)
             return
@@ -729,6 +928,8 @@ class Simulator:
             },
             "target": self._target,
             "currentScenarioId": self._scenario_id,
+            "commsSilent": self._comms_silent,
+            "resumeInSeconds": self._comms_resume_in_seconds(),
             "fireScenario": {
                 "active": self._fire_scenario["active"],
                 "latitude": (

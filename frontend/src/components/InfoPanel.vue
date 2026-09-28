@@ -24,6 +24,9 @@ const battery = computed<number | null>(() => {
   return Number.isFinite(b) ? b : null
 })
 
+/** 心跳超时（backend 置 OFFLINE）或断联演示中 */
+const uavOffline = computed(() => String(props.state?.status ?? '').toUpperCase() === 'OFFLINE')
+
 const batteryLevel = computed<'ok' | 'warn' | 'mid' | 'crit' | null>(() => {
   const b = battery.value
   if (b === null) return null
@@ -61,7 +64,10 @@ function timeText(ts: number): string {
 <template>
   <aside class="panel">
     <section class="card">
-      <h3>设备状态</h3>
+      <h3>
+        设备状态
+        <span v-if="uavOffline" class="uav-offline-badge">离线</span>
+      </h3>
       <div v-if="!state" class="placeholder">{{ connectionLost ? '后端连接断开，等待恢复…' : '正在获取无人机状态…' }}</div>
       <template v-else>
         <div class="kv"><span>设备 ID</span><b>{{ state.deviceId }}</b></div>
@@ -83,6 +89,7 @@ function timeText(ts: number): string {
           <div class="kv"><span>GPS</span><b>{{ zhGpsStatus(state.gpsStatus) }}</b></div>
           <div class="kv"><span>RTK</span><b>{{ zhGpsStatus(state.rtkStatus) }}</b></div>
         </div>
+        <p v-if="uavOffline" class="hint">心跳超时，地图与面板展示最后已知位置</p>
       </template>
     </section>
 

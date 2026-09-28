@@ -64,8 +64,14 @@ const emit = defineEmits<{
 }>()
 
 const DEFAULT_ALTITUDE = 120
-const DEFAULT_CENTER: L.LatLngExpression = [30.12, 114.12]
+/** 演示区 bbox 中心（30.10~30.14N, 114.11~114.15E） */
+const DEFAULT_CENTER: L.LatLngExpression = [30.12, 114.13]
 const DEFAULT_ZOOM = 15
+/** 离线瓦片覆盖区外扩钳制，防止拖出无瓦片区 */
+const DEMO_BOUNDS = L.latLngBounds([30.08, 114.09], [30.16, 114.17])
+/** 1x1 透明 png：缺失瓦片不显示破图 */
+const TRANSPARENT_TILE =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 
 const mapEl = ref<HTMLDivElement | null>(null)
 const follow = ref(true)
@@ -146,18 +152,22 @@ const analysisHint = computed(() => {
 let map: L.Map | null = null
 let marker: L.Marker | null = null
 let lastHeading = 0
+let lastOffline: boolean | null = null
 const fireMarkers = new Map<string, L.Marker>()
 let polygonLayer: L.LayerGroup | null = null
 
-function uavIcon(heading: number): L.DivIcon {
+function uavIcon(heading: number, offline: boolean): L.DivIcon {
   const deg = ((heading % 360) + 360) % 360
+  const color = offline ? '#94a3b8' : '#00e5a0'
+  const glow = offline ? 'rgba(148, 163, 184, 0.55)' : 'rgba(0, 229, 160, 0.7)'
+  const fill = offline ? 'rgba(148, 163, 184, 0.14)' : 'rgba(0, 229, 160, 0.14)'
   return L.divIcon({
     className: 'uav-div-icon',
     html:
-      `<div class="uav-icon" style="transform: rotate(${deg}deg)">` +
+      `<div class="uav-icon" style="transform: rotate(${deg}deg); filter: drop-shadow(0 0 5px ${glow})">` +
       '<svg viewBox="0 0 40 40" width="40" height="40">' +
-      '<circle cx="20" cy="20" r="13" fill="rgba(0,229,160,0.14)" stroke="#00e5a0" stroke-width="1.5"/>' +
-      '<path d="M20 5 L26 25 L20 21 L14 25 Z" fill="#00e5a0" stroke="#003b2a" stroke-width="0.5"/>' +
+      `<circle cx="20" cy="20" r="13" fill="${fill}" stroke="${color}" stroke-width="1.5"/>` +
+      `<path d="M20 5 L26 25 L20 21 L14 25 Z" fill="${color}" stroke="#003b2a" stroke-width="0.5"/>` +
       '</svg></div>',
     iconSize: [40, 40],
     iconAnchor: [20, 20],
@@ -400,16 +410,24 @@ watch(
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
     const heading = Number.isFinite(Number(s.heading)) ? Number(s.heading) : lastHeading
     lastHeading = heading
+    // OFFLINE（心跳超时/断联演示）时标记变灰，保留最后已知位置
+    const offline = String(s.status ?? '').toUpperCase() === 'OFFLINE'
 
     if (!marker) {
-      marker = L.marker([lat, lng], { icon: uavIcon(heading), zIndexOffset: 1000 }).addTo(map)
+      marker = L.marker([lat, lng], { icon: uavIcon(heading, offline), zIndexOffset: 1000 }).addTo(map)
+      lastOffline = offline
     } else {
       marker.setLatLng([lat, lng])
-      const rot = marker.getElement()?.querySelector<HTMLElement>('.uav-icon')
-      if (rot) {
-        rot.style.transform = `rotate(${((heading % 360) + 360) % 360}deg)`
+      if (lastOffline !== offline) {
+        marker.setIcon(uavIcon(heading, offline))
+        lastOffline = offline
       } else {
-        marker.setIcon(uavIcon(heading))
+        const rot = marker.getElement()?.querySelector<HTMLElement>('.uav-icon')
+        if (rot) {
+          rot.style.transform = `rotate(${((heading % 360) + 360) % 360}deg)`
+        } else {
+          marker.setIcon(uavIcon(heading, offline))
+        }
       }
     }
     if (follow.value) {
@@ -423,9 +441,16 @@ onMounted(() => {
   map = L.map(mapEl.value, {
     center: DEFAULT_CENTER,
     zoom: DEFAULT_ZOOM,
+    // 视野钳制在离线瓦片演示区（外扩），防止拖出无瓦片区
+    maxBounds: DEMO_BOUNDS,
+    maxBoundsViscosity: 1.0,
   })
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
+  // 本地离线瓦片（frontend/public/tiles/{z}/{x}/{y}.png，build 后随 dist/ 发布）
+  L.tileLayer('tiles/{z}/{x}/{y}.png', {
+    minZoom: 13,
+    maxZoom: 17,
+    noWrap: true,
+    errorTileUrl: TRANSPARENT_TILE,
     className: 'map-tiles',
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',

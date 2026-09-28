@@ -15,6 +15,9 @@ import java.util.List;
 @Service
 public class DeviceService {
 
+    /** DeviceStatus：离线（D5 心跳超时后由 {@link DeviceOfflineScheduler} 标记） */
+    private static final String DEVICE_STATUS_OFFLINE = "OFFLINE";
+
     private final UavDeviceRepository deviceRepository;
     private final UavTelemetryRepository telemetryRepository;
 
@@ -87,9 +90,16 @@ public class DeviceService {
         String gpsStatus = null;
         String rtkStatus = latest != null ? latest.getRtkStatus() : null;
 
+        // status 取 uav_device.device_status（telemetry-ingest 每次按 flight.status 重映射，始终最新）；
+        // D5：device_status='OFFLINE'（心跳超时离线标记，见 DeviceOfflineScheduler）时响应 status
+        // 覆盖为 OFFLINE，而非最新遥测行残留的历史状态；遥测恢复后下一跳 ingest 即自动回正。
+        String status = DEVICE_STATUS_OFFLINE.equals(device.getDeviceStatus())
+                ? DEVICE_STATUS_OFFLINE
+                : device.getDeviceStatus();
+
         return new DeviceViews.UavStateSummary(
                 device.getDeviceCode(),
-                device.getDeviceStatus(),
+                status,
                 latitude,
                 longitude,
                 altitude,

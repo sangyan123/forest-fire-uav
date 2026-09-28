@@ -1,8 +1,9 @@
 import type { CommandRecord, CommandType, Envelope, MissionRecord, UavState } from './types'
 
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8080'
-const SIM_BASE =
-  (import.meta.env.VITE_SIMULATOR_BASE as string | undefined) ?? 'http://localhost:8002'
+// 默认同源相对路径，由 nginx（容器）或 vite proxy（本地 dev/preview）转发；
+// 不能写死 localhost，否则只有浏览器与 Docker 宿主同机时才能连上
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? ''
+const SIM_BASE = (import.meta.env.VITE_SIMULATOR_BASE as string | undefined) ?? ''
 
 /** 统一请求：解析 {code,message,data} 包裹；code 兼容数字 0 与字符串 "0"；
  * 兼容 204/空 body；非 0 抛出 message。 */

@@ -44,6 +44,11 @@ ai-service:
   # AI 算法服务（F01检测/F03定位/F04核验，mock provider），容器环境用 AI_SERVICE_URL 覆盖
   url: ${AI_SERVICE_URL:http://ai-service:8000}
 
+device:
+  # 心跳超时离线阈值（秒，D5）：device_status != 'OFFLINE' 的设备，其最新
+  # uav_telemetry.event_time 距今超过该值 → 置 'OFFLINE'（DeviceOfflineScheduler 每 5 秒扫描）
+  offline-timeout-seconds: 15
+
 management:
   endpoints:
     web:
