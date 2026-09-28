@@ -445,15 +445,16 @@ onMounted(() => {
     maxBounds: DEMO_BOUNDS,
     maxBoundsViscosity: 1.0,
   })
-  // 本地离线瓦片（frontend/public/tiles/{z}/{x}/{y}.png，build 后随 dist/ 发布）
-  L.tileLayer('tiles/{z}/{x}/{y}.png', {
+  // 本地离线瓦片（frontend/public/tiles/{z}/{x}/{y}.jpg，build 后随 dist/ 发布）
+  // 源: Esri World_Imagery 卫星影像（scripts/fetch-tiles.mjs 一次性下载；断网可演示）
+  L.tileLayer('tiles/{z}/{x}/{y}.jpg', {
     minZoom: 13,
     maxZoom: 17,
     noWrap: true,
     errorTileUrl: TRANSPARENT_TILE,
     className: 'map-tiles',
     attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Earthstar Geographics',
   }).addTo(map)
   map.on('click', onMapClick)
   map.on('move', () => {

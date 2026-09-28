@@ -2,10 +2,14 @@
 /**
  * 离线瓦片下载（D5 演示固化）
  * 用法: node scripts/fetch-tiles.mjs
- * 下载演示区域（bbox 30.10~30.14N, 114.11~114.15E）zoom 13~17 的瓦片
- * 到 frontend/public/tiles/{z}/{x}/{y}.png，供现场断网时离线演示。
- * 瓦片源: Carto light_all（本机实测可达；OSM 官方源与国内镜像不可达）
+ * 下载演示区域（bbox 30.10~30.14N, 114.11~114.15E）zoom 13~17 的卫星影像瓦片
+ * 到 frontend/public/tiles/{z}/{x}/{y}.jpg，供现场断网时离线演示。
+ * 瓦片源: Esri World_Imagery（实测可用；Carto/OSM官方源本机不可用或返回
+ *        2049字节的"api key required"占位图——曾导致全量假瓦片事故）。
+ * 注意 Esri 的 URL 瓦片坐标顺序是 {z}/{y}/{x}（与 Leaflet 的 {z}/{x}/{y} 相反），
+ * 下载时转换、存储仍用 Leaflet 标准布局 {z}/{x}/{y}。
  * 遵守瓦片使用政策：带 User-Agent、串行 + 100ms 节流、总量小（约365块）。
+ * 地图上须保留 Esri 署名（MapView.vue attribution）。
  */
 import { mkdirSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -31,14 +35,16 @@ for (const z of ZOOMS) {
 console.log(`待下载 ${jobs.length} 块瓦片（zoom ${ZOOMS.join('/')}）→ ${OUT}`);
 
 for (const { z, x, y } of jobs) {
-  const file = `${OUT}${z}/${x}/${y}.png`;
-  if (existsSync(file) && statSync(file).size > 100) { skipped++; continue; }
+  const file = `${OUT}${z}/${x}/${y}.jpg`;
+  if (existsSync(file) && statSync(file).size > 3000) { skipped++; continue; }
   mkdirSync(dirname(file), { recursive: true });
-  const url = `https://basemaps.cartocdn.com/light_all/${z}/${x}/${y}.png`;
+  // Esri URL 坐标顺序为 z/y/x（与 Leaflet 布局相反），此处转换
+  const url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
   try {
     const res = await fetch(url, { headers: { 'User-Agent': UA } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 3000) throw new Error(`suspicious tile size ${buf.length}`);
     writeFileSync(file, buf);
     done++;
   } catch (e) {
