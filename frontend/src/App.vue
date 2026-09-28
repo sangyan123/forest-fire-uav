@@ -9,15 +9,15 @@ import {
   getFireIncidents,
   getIncidentPolygons,
   getIncidentTracking,
+  getSimulatorStatus,
   getUavState,
   missionIdOf,
   patchIncidentStatus,
   postCommand,
   postIncidentAnalysis,
   postIncidentVerification,
-  startFireScenario,
   startMission,
-  stopFireScenario,
+  startScenario,
 } from './api'
 import {
   appendTimelinePoint,
@@ -25,6 +25,7 @@ import {
   parseAnalysis,
   parseIncidents,
   parsePolygonHistory,
+  parseSimulatorStatus,
   parseStatusHistory,
   parseVerification,
   sortIncidentsForDisplay,
@@ -49,6 +50,7 @@ const DEVICE_ID = 'UAV-001'
 const STATE_POLL_MS = 1000
 const COMMAND_POLL_MS = 1000
 const INCIDENT_POLL_MS = 2000
+const SIMULATOR_POLL_MS = 2000
 const SCENARIO_WAIT_TIMEOUT_MS = 20000
 const MAX_TRACKED = 12
 
@@ -64,6 +66,7 @@ const pollTimers = new Map<string, ReturnType<typeof setInterval>>()
 let stateTimer: ReturnType<typeof setInterval> | undefined
 let clockTimer: ReturnType<typeof setInterval> | undefined
 let incidentTimer: ReturnType<typeof setInterval> | undefined
+let simulatorTimer: ReturnType<typeof setInterval> | undefined
 
 /* ---------------- 火情事件 ---------------- */
 
@@ -92,11 +95,11 @@ function recordTimelines(list: FireIncident[]): void {
     const backend = parseStatusHistory(inc.raw)
     const prev = timelines.value[inc.id]
     if (backend !== null) {
-      // 后端透出历史：整段采用；若末点之后本地还记录过更晚状态则续接
+      // 后端透出历史：整段采用；仅当本地曾记录过"超出后端末点"的状态时才续接
       let merged = backend
-      const lastLocal = prev?.[prev.length - 1]
-      if (lastLocal && backend[backend.length - 1]?.status !== lastLocal.status) {
-        merged = appendTimelinePoint(merged, lastLocal.status, lastLocal.at ?? Date.now(), 'local')
+      const lastPrev = prev?.[prev.length - 1]
+      if (lastPrev?.source === 'local' && backend[backend.length - 1]?.status !== lastPrev.status) {
+        merged = appendTimelinePoint(merged, lastPrev.status, lastPrev.at ?? Date.now(), 'local')
       }
       timelines.value[inc.id] = merged
       continue
@@ -117,60 +120,97 @@ async function pollIncidents(): Promise<void> {
     recordTimelines(list)
     incidents.value = sortIncidentsForDisplay(list)
     for (const inc of list) knownIncidentIds.add(inc.id)
-    // 注入场景后首次发现新事件 -> 解除按钮 loading
-    if (scenarioLoading.value && scenarioSnapshot !== null) {
+    // 启动场景后首次发现"自己的"新事件 -> 解除按钮 loading（按 scenarioType 匹配）
+    if (scenarioPending.value !== null && scenarioSnapshot !== null) {
       const snapshot = scenarioSnapshot
-      if (list.some((i) => !snapshot.has(i.id))) resolveScenarioWait(true)
+      const candidates = list.filter((i) => !snapshot.has(i.id))
+      const meta = SCENARIOS.find((s) => s.id === scenarioPending.value)
+      const matched =
+        candidates.find(
+          (i) => meta?.waitType == null || i.scenarioType === null || i.scenarioType === meta.waitType,
+        ) ?? candidates[0]
+      if (matched) resolveScenarioWait(true)
     }
   } catch {
     // 事件列表拉取失败静默重试（连接角标由无人机状态轮询负责）
   }
 }
 
-/* ---------------- 注入/停止演示场景 ---------------- */
+/* ---------------- 场景注册表（scenario-01/02/04） ---------------- */
 
-type ScenarioVerdict = 'CONFIRMED' | 'FALSE_ALARM'
+interface ScenarioMeta {
+  id: string
+  label: string
+  /** 附加配色类 */
+  css: string
+  /** 期望的新事件 scenarioType；null=无需等待（scenario-01） */
+  waitType: 'CONFIRMED' | 'FALSE_ALARM' | null
+  startToast: string
+  foundToast: string
+}
 
-const scenarioActive = ref(false)
-const scenarioLoading = ref(false)
-/** 正在等待事件生成的场景走向（决定哪个按钮转 loading） */
-const scenarioPendingVerdict = ref<ScenarioVerdict | null>(null)
+const SCENARIOS: ScenarioMeta[] = [
+  {
+    id: 'scenario-01',
+    label: '▶ Scenario-01 正常巡检',
+    css: 'patrol',
+    waitType: null,
+    startToast: '已恢复正常巡检',
+    foundToast: '',
+  },
+  {
+    id: 'scenario-02',
+    label: '🔥 Scenario-02 火情发现',
+    css: '',
+    waitType: 'CONFIRMED',
+    startToast: '已注入火情场景，无人机前往核查',
+    foundToast: '火情事件已生成，无人机前往核查',
+  },
+  {
+    id: 'scenario-04',
+    label: '⚠️ Scenario-04 误报',
+    css: 'warn',
+    waitType: 'FALSE_ALARM',
+    startToast: '已注入误报演示场景，无人机前往核查',
+    foundToast: '误报事件已生成，无人机前往核查',
+  },
+]
+
+/** 当前激活场景：点击后本地置位，随后由 GET /simulator/status 2s 轮询校正 */
+const currentScenarioId = ref<string | null>(null)
+/** 正在等待新事件的场景（仅 scenario-02/04），决定哪个按钮转 loading */
+const scenarioPending = ref<string | null>(null)
 let scenarioSnapshot: Set<string> | null = null
 let scenarioWaitToken = 0
 
 function resolveScenarioWait(found: boolean): void {
-  scenarioLoading.value = false
-  scenarioPendingVerdict.value = null
+  const meta = SCENARIOS.find((s) => s.id === scenarioPending.value)
+  scenarioPending.value = null
   scenarioSnapshot = null
   scenarioWaitToken++
   if (found) {
-    pushToast('success', '火情事件已生成，无人机前往核查')
+    pushToast('success', meta?.foundToast ?? '场景事件已生成，无人机前往核查')
   }
 }
 
-async function onStartScenario(verdict: ScenarioVerdict): Promise<void> {
-  if (scenarioLoading.value || scenarioActive.value) return
+async function onStartScenario(id: string): Promise<void> {
+  if (scenarioPending.value !== null) return
+  const meta = SCENARIOS.find((s) => s.id === id)
+  if (!meta) return
   try {
-    await startFireScenario({ verdict })
+    await startScenario(id)
   } catch (e) {
-    pushToast(
-      'error',
-      `注入${verdict === 'FALSE_ALARM' ? '误报演示' : '火情'}场景失败：${e instanceof Error ? e.message : '未知错误'}`,
-    )
+    pushToast('error', `启动场景失败：${e instanceof Error ? e.message : '未知错误'}`)
     return
   }
-  scenarioActive.value = true
-  pushToast(
-    'info',
-    verdict === 'FALSE_ALARM' ? '已注入误报演示场景，无人机前往核查' : '已注入火情场景，无人机前往核查',
-  )
-  // loading 直到事件列表出现新事件，或超时兜底
-  scenarioLoading.value = true
-  scenarioPendingVerdict.value = verdict
+  currentScenarioId.value = id // 本地置位，高亮即时反馈；轮询随后校正
+  pushToast('info', meta.startToast)
+  if (meta.waitType === null) return // scenario-01 无需等待新事件
+  scenarioPending.value = id
   scenarioSnapshot = new Set(knownIncidentIds)
   const token = ++scenarioWaitToken
   window.setTimeout(() => {
-    if (scenarioLoading.value && token === scenarioWaitToken) {
+    if (scenarioPending.value === id && token === scenarioWaitToken) {
       resolveScenarioWait(false)
       pushToast('info', '暂未在事件列表中看到新事件，可稍后继续观察')
     }
@@ -178,16 +218,15 @@ async function onStartScenario(verdict: ScenarioVerdict): Promise<void> {
   void pollIncidents()
 }
 
-async function onStopScenario(): Promise<void> {
-  if (!scenarioActive.value) return
+/** 2s 轮询模拟器状态，用 currentScenarioId 校正高亮；等待期间以本地置位为准 */
+async function pollSimulatorStatus(): Promise<void> {
   try {
-    await stopFireScenario()
-  } catch (e) {
-    pushToast('error', `停止场景失败：${e instanceof Error ? e.message : '未知错误'}`)
-    return
+    const raw = await getSimulatorStatus()
+    if (scenarioPending.value !== null) return
+    currentScenarioId.value = parseSimulatorStatus(raw)
+  } catch {
+    // 模拟器未就绪时保留本地状态
   }
-  scenarioActive.value = false
-  pushToast('info', '演示场景已停止')
 }
 
 /* ---------------- 事件卡片动作 ---------------- */
@@ -445,6 +484,9 @@ onMounted(() => {
   incidentTimer = setInterval(() => {
     void pollIncidents()
   }, INCIDENT_POLL_MS)
+  simulatorTimer = setInterval(() => {
+    void pollSimulatorStatus()
+  }, SIMULATOR_POLL_MS)
   clockTimer = setInterval(() => {
     now.value = Date.now()
   }, 500)
@@ -454,6 +496,7 @@ onUnmounted(() => {
   if (stateTimer !== undefined) clearInterval(stateTimer)
   if (clockTimer !== undefined) clearInterval(clockTimer)
   if (incidentTimer !== undefined) clearInterval(incidentTimer)
+  if (simulatorTimer !== undefined) clearInterval(simulatorTimer)
   for (const id of [...pollTimers.keys()]) stopPolling(id)
 })
 </script>
@@ -466,31 +509,17 @@ onUnmounted(() => {
         森林防火无人机智能系统 <small>Demo · Vue 3 + Leaflet</small>
       </div>
       <div class="topbar-right">
-        <template v-if="!scenarioActive">
-          <button
-            class="fire-btn"
-            :class="{ loading: scenarioLoading }"
-            :disabled="scenarioLoading"
-            @click="onStartScenario('CONFIRMED')"
-          >
-            <span v-if="scenarioLoading && scenarioPendingVerdict === 'CONFIRMED'" class="spinner"></span>
-            <template v-if="scenarioLoading && scenarioPendingVerdict === 'CONFIRMED'">等待火情事件生成…</template>
-            <template v-else>🔥 火情场景</template>
-          </button>
-          <button
-            class="fire-btn warn"
-            :class="{ loading: scenarioLoading }"
-            :disabled="scenarioLoading"
-            @click="onStartScenario('FALSE_ALARM')"
-          >
-            <span v-if="scenarioLoading && scenarioPendingVerdict === 'FALSE_ALARM'" class="spinner"></span>
-            <template v-if="scenarioLoading && scenarioPendingVerdict === 'FALSE_ALARM'">等待误报事件生成…</template>
-            <template v-else>⚠️ 误报场景</template>
-          </button>
-        </template>
-        <button v-else class="fire-btn stop" :disabled="scenarioLoading" @click="onStopScenario">
-          <span v-if="scenarioLoading" class="spinner"></span>
-          ■ 停止场景
+        <button
+          v-for="s in SCENARIOS"
+          :key="s.id"
+          class="fire-btn"
+          :class="[s.css, { active: currentScenarioId === s.id }]"
+          :disabled="scenarioPending !== null"
+          @click="onStartScenario(s.id)"
+        >
+          <span v-if="scenarioPending === s.id" class="spinner"></span>
+          <template v-if="scenarioPending === s.id">等待事件生成…</template>
+          <template v-else>{{ s.label }}</template>
         </button>
         <div class="conn" :class="connectionLost ? 'bad' : 'ok'">
           <span class="dot"></span>

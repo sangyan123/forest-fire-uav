@@ -82,6 +82,22 @@ export function stopFireScenario(): Promise<unknown> {
   })
 }
 
+/* ---------------- 场景注册表（simulator, :8002） ---------------- */
+
+/** 启动注册表场景：scenario-01 正常巡检 / scenario-02 火情发现 / scenario-04 误报；未知号返回 40001 */
+export function startScenario(scenarioId: string, body?: Record<string, unknown>): Promise<unknown> {
+  return requestBase<unknown>(SIM_BASE, `/simulator/scenarios/${encodeURIComponent(scenarioId)}/start`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body ?? {}),
+  })
+}
+
+/** 模拟器状态（含 currentScenarioId），字段宽松解析见 fire.ts parseSimulatorStatus */
+export function getSimulatorStatus(): Promise<unknown> {
+  return requestBase<unknown>(SIM_BASE, '/simulator/status')
+}
+
 /* ---------------- 火情事件 ---------------- */
 
 /** 事件列表原始数据，结构宽松，用 fire.ts 的 parseIncidents 解析 */

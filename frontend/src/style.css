@@ -568,12 +568,32 @@ body {
   opacity: 0.78;
 }
 
-.fire-btn.active,
-.fire-btn.stop {
-  border-color: rgba(148, 163, 184, 0.55);
-  background: rgba(148, 163, 184, 0.14);
-  color: #cbd5e1;
-  box-shadow: none;
+/* 顶栏场景按钮紧凑化（三个并排） */
+.topbar-right .fire-btn {
+  padding: 7px 13px;
+  font-size: 12.5px;
+  letter-spacing: 0;
+}
+
+/* 当前激活场景：青绿描边光圈（叠加在各按钮底色之上） */
+.fire-btn.active {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px rgba(0, 229, 160, 0.45),
+    0 0 14px rgba(0, 229, 160, 0.28);
+}
+
+/* Scenario-01 正常巡检：青绿基调 */
+.fire-btn.patrol {
+  border-color: rgba(0, 229, 160, 0.5);
+  background: linear-gradient(135deg, rgba(0, 229, 160, 0.2), rgba(56, 189, 248, 0.16));
+  color: #aef7dd;
+  box-shadow: 0 0 12px rgba(0, 229, 160, 0.25);
+}
+
+.fire-btn.patrol:hover {
+  background: linear-gradient(135deg, rgba(0, 229, 160, 0.32), rgba(56, 189, 248, 0.26));
+  box-shadow: 0 0 18px rgba(0, 229, 160, 0.4);
 }
 
 /* 误报场景按钮：橙黄警示风 */

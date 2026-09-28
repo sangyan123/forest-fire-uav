@@ -7,6 +7,7 @@ stopped/started again via the /simulator REST endpoints.
 import logging
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Literal
 
@@ -22,6 +23,13 @@ app = FastAPI(title="mock-uav", version="0.1.0")
 
 simulator = Simulator()
 
+# Baseline ch.61 DEMO scenario registry: scenario id -> fixed verdict.
+# scenario-01 (normal patrol) is not listed; it maps to stopping the fire scenario.
+SCENARIO_START_VERDICTS = {
+    "scenario-02": "CONFIRMED",
+    "scenario-04": "FALSE_ALARM",
+}
+
 
 class FireScenarioStartRequest(BaseModel):
     """Optional body of POST /simulator/scenarios/fire/start.
@@ -34,6 +42,16 @@ class FireScenarioStartRequest(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
     verdict: Literal["CONFIRMED", "FALSE_ALARM"] | None = None
+
+
+class ScenarioStartRequest(BaseModel):
+    """Optional body of POST /simulator/scenarios/{scenarioId}/start ({latitude, longitude} only).
+
+    The verdict is fixed by the scenario id in the registry (02 -> CONFIRMED, 04 -> FALSE_ALARM).
+    """
+
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 def _wrap(data):
@@ -69,7 +87,9 @@ async def simulator_status():
     """Current position / battery / flight state / target point / fire scenario.
 
     fireScenario contains {active, latitude, longitude, capturing, verdict}; verdict is the
-    demo line of the last/running scenario ("CONFIRMED" or "FALSE_ALARM").
+    demo line of the last/running scenario ("CONFIRMED" or "FALSE_ALARM"). currentScenarioId
+    is the active baseline ch.61 registry id ("scenario-01" on normal patrol,
+    "scenario-02"/"scenario-04" while a fire scenario runs).
     """
     return _wrap(simulator.status_snapshot())
 
@@ -97,3 +117,34 @@ async def stop_fire_scenario():
     """
     simulator.stop_fire_scenario()
     return _wrap(simulator.status_snapshot())
+
+
+@app.post("/simulator/scenarios/{scenario_id}/start")
+async def start_scenario_by_id(scenario_id: str, request: ScenarioStartRequest | None = None):
+    """Start a baseline ch.61 DEMO scenario by registry id (one-click for the demo script).
+
+    - scenario-01 正常巡检: stop the fire scenario / restore wayline patrol (idempotent)
+    - scenario-02 火情发现: fire scenario, verdict CONFIRMED, body optional {latitude, longitude}
+    - scenario-04 误报:     fire scenario, verdict FALSE_ALARM, body optional {latitude, longitude}
+
+    Returns {code: 0, data: {scenarioId, verdict?, fireScenario}}; unknown ids return
+    {code: 40001, message: "unknown scenarioId"} (HTTP 400, aligned with backend ErrorCode).
+    """
+    key = (scenario_id or "").strip().lower()
+    if key == "scenario-01":
+        simulator.stop_fire_scenario()  # idempotent: also succeeds when already patrolling
+        return _wrap({
+            "scenarioId": key,
+            "fireScenario": simulator.status_snapshot()["fireScenario"],
+        })
+    verdict = SCENARIO_START_VERDICTS.get(key)
+    if verdict is None:
+        return JSONResponse(status_code=400, content={"code": 40001, "message": "unknown scenarioId"})
+    latitude = request.latitude if request is not None else None
+    longitude = request.longitude if request is not None else None
+    simulator.start_fire_scenario(latitude=latitude, longitude=longitude, verdict=verdict)
+    return _wrap({
+        "scenarioId": key,
+        "verdict": verdict,
+        "fireScenario": simulator.status_snapshot()["fireScenario"],
+    })

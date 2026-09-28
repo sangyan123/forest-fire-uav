@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -220,6 +221,7 @@ public class FireIncidentService {
             extra.put("maxConfidence", confidence);
             extra.put("scenarioType", scenarioType);                    // D2：创建路径写入场景提示
             incident.setExtra(extra);
+            recordStatusChange(incident, "SUSPECTED", now);             // D4：初始状态入历史
             incident.setCreatedAt(now);                                 // created_at NOT NULL
             incident.setUpdatedAt(now);                                 // updated_at NOT NULL
             incident = incidentRepository.save(incident);
@@ -275,7 +277,8 @@ public class FireIncidentService {
                 incident.getVerificationStatus(), incident.getFalseAlarm(), incident.getDescription(),
                 incident.getExtra(), incident.getCreatedAt(), incident.getUpdatedAt(),
                 (int) polygonRepository.countByIncidentId(incident.getId()),
-                points, detections, latest);
+                points, detections, latest,
+                statusHistoryOf(incident, 0));
     }
 
     // ---------------- 3. PATCH status（状态机） ----------------
@@ -320,6 +323,7 @@ public class FireIncidentService {
             extra.put("lastStatusAt", now.toString());
             incident.setExtra(extra);
         }
+        recordStatusChange(incident, to, now);                          // D4：合法迁移入历史
         incident.setUpdatedAt(now);
         incidentRepository.save(incident);
         return getDetail(incidentId);
@@ -342,6 +346,7 @@ public class FireIncidentService {
         if ("SUSPECTED".equals(current)) {
             // SUSPECTED 不直接跳 CONFIRMED/FALSE_ALARM：先推进合法一步 VERIFYING，再按结论落地
             incident.setStatus("VERIFYING");
+            recordStatusChange(incident, "VERIFYING", Instant.now());   // D4：核验推进入历史
         } else if (!"VERIFYING".equals(current)) {
             throw new BusinessException(ErrorCode.STATE_CONFLICT,
                     "verification only allowed from SUSPECTED/VERIFYING, current=" + current);
@@ -424,11 +429,13 @@ public class FireIncidentService {
             if (incident.getConfirmedAt() == null) {
                 incident.setConfirmedAt(now);
             }
+            recordStatusChange(incident, "CONFIRMED", now);             // D4：核验结论入历史
         } else if ("FALSE_ALARM".equals(decision)) {
             incident.setStatus("FALSE_ALARM");
             incident.setFalseAlarm(true);
+            recordStatusChange(incident, "FALSE_ALARM", now);           // D4：核验结论入历史
         }
-        // UNCERTAIN → 保持 VERIFYING（需人工复核）
+        // UNCERTAIN → 保持 VERIFYING（需人工复核，状态不变故不追加历史）
         incident.setUpdatedAt(now);
         incidentRepository.save(incident);
 
@@ -596,6 +603,68 @@ public class FireIncidentService {
         return v instanceof String s && !s.isBlank() ? s : SCENARIO_FIRE;
     }
 
+    // ---------------- D4：状态历史（fire_incident.extra.statusHistory） ----------------
+
+    /** 列表视图的状态历史条数上限（省流量；详情给全量） */
+    private static final int SUMMARY_HISTORY_LIMIT = 5;
+
+    /**
+     * 状态变更统一入口：向 extra.statusHistory 追加 {"status":..,"at":<UTC ISO>}。
+     * 合并写入（extraOf 复制既有 map），scenarioType/detectionCount 等字段全部保留；
+     * 与末条同状态时不重复追加。所有状态变更路径（创建初始 SUSPECTED、PATCH 合法迁移、
+     * verification 触发的迁移）都必须经过本方法；非法迁移在各自入口先抛 40003，不会走到这里。
+     */
+    private static void recordStatusChange(FireIncidentEntity incident, String status, Instant at) {
+        Map<String, Object> extra = extraOf(incident);
+        List<Object> history = extra.get("statusHistory") instanceof List<?> l
+                ? new ArrayList<>(l) : new ArrayList<>();
+        String last = history.isEmpty() ? null
+                : historyStatusOf(history.get(history.size() - 1));
+        if (status.equals(last)) {
+            return; // 同状态重复不追加
+        }
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("status", status);
+        entry.put("at", at.toString()); // Instant.toString() 即 UTC ISO-8601
+        history.add(entry);
+        extra.put("statusHistory", history);
+        incident.setExtra(extra);
+    }
+
+    /** 历史条目的状态值（兼容对象 {status,at} 与字符串两种形态） */
+    private static String historyStatusOf(Object entry) {
+        if (entry instanceof Map<?, ?> m && m.get("status") != null) {
+            return String.valueOf(m.get("status"));
+        }
+        if (entry instanceof String s) {
+            return s;
+        }
+        return null;
+    }
+
+    /** extra.statusHistory → 视图条目列表；limit>0 时只取最近 limit 条（详情传 0 表示全量） */
+    private static List<FireViews.StatusHistoryEntry> statusHistoryOf(FireIncidentEntity incident, int limit) {
+        Object raw = incident.getExtra() == null ? null : incident.getExtra().get("statusHistory");
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            return List.of();
+        }
+        List<FireViews.StatusHistoryEntry> all = new ArrayList<>();
+        for (Object e : list) {
+            if (e instanceof Map<?, ?> m) {
+                Object at = m.get("at");
+                all.add(new FireViews.StatusHistoryEntry(
+                        m.get("status") == null ? null : String.valueOf(m.get("status")),
+                        at == null ? null : String.valueOf(at)));
+            } else if (e instanceof String s) {
+                all.add(new FireViews.StatusHistoryEntry(s, null));
+            }
+        }
+        if (limit > 0 && all.size() > limit) {
+            return all.subList(all.size() - limit, all.size());
+        }
+        return all;
+    }
+
     /** media.metadata.scenarioType 宽松归一：缺省/未知 → FIRE（media/ 包复用） */
     public static String normalizeScenarioType(String raw) {
         if (raw == null || raw.isBlank()) {
@@ -696,6 +765,7 @@ public class FireIncidentService {
                 incident.getLatitude(), incident.getLongitude(),
                 latestConfidence, detectionCount,
                 incident.getFirstDetectedAt(), incident.getVerificationStatus(),
+                statusHistoryOf(incident, SUMMARY_HISTORY_LIMIT),
                 incident.getCreatedAt(), incident.getUpdatedAt());
     }
 

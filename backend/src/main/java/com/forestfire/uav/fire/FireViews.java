@@ -15,7 +15,11 @@ public final class FireViews {
     private FireViews() {
     }
 
-    /** GET /api/v1/fire/incidents 列表项 */
+    /** 状态历史条目（D4 演示固化）：{"status":"<状态>","at":"<UTC ISO 时间>"}；前端 statusHistory 字段已适配 */
+    public record StatusHistoryEntry(String status, String at) {
+    }
+
+    /** GET /api/v1/fire/incidents 列表项（statusHistory 只给最近 5 条以省流量） */
     public record IncidentSummary(
             UUID id,
             String incidentNo,
@@ -29,6 +33,7 @@ public final class FireViews {
             Integer detectionCount,
             Instant firstDetectedAt,
             String verificationStatus,
+            List<StatusHistoryEntry> statusHistory,
             Instant createdAt,
             Instant updatedAt
     ) {
@@ -103,7 +108,8 @@ public final class FireViews {
             Integer polygonsCount,
             List<PointView> firePoints,
             List<DetectionView> detections,
-            VerificationView latestVerification
+            VerificationView latestVerification,
+            List<StatusHistoryEntry> statusHistory
     ) {
     }
 }

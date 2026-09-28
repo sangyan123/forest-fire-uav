@@ -22,6 +22,13 @@ Demo verdict lines (body field ``verdict``, default "CONFIRMED"):
                    ``media.metadata = {"scenarioType": "FALSE_ALARM"}``
 metadata is a demo-mode scenario hint (extra field allowed by uav-media.schema.json);
 real evidence replaces it once a real detection model is online.
+
+Scenario registry (baseline ch.61 DEMO scenarios, POST /simulator/scenarios/{scenarioId}/start):
+  - scenario-01 正常巡检  -> stop the fire scenario / restore wayline patrol (idempotent)
+  - scenario-02 火情发现  -> fire scenario, verdict CONFIRMED
+  - scenario-04 误报      -> fire scenario, verdict FALSE_ALARM
+status.currentScenarioId reports the active registry id ("scenario-01" on normal patrol);
+the legacy /simulator/scenarios/fire/start|stop endpoints set it from their verdict too.
 """
 
 import asyncio
@@ -62,6 +69,11 @@ RGB_IMAGES_PER_THERMAL = 4  # every 4 RGB images insert 1 THERMAL_IMAGE
 # identically; only media.metadata.scenarioType (consumed by the backend demo) differs.
 SCENARIO_VERDICTS = ("CONFIRMED", "FALSE_ALARM")
 VERDICT_SCENARIO_TYPE = {"CONFIRMED": "FIRE", "FALSE_ALARM": "FALSE_ALARM"}
+
+# Baseline ch.61 DEMO scenario registry ids; the legacy fire/start endpoints map to these
+# via their verdict so currentScenarioId stays consistent across both API styles.
+SCENARIO_ID_PATROL = "scenario-01"
+VERDICT_SCENARIO_ID = {"CONFIRMED": "scenario-02", "FALSE_ALARM": "scenario-04"}
 
 M_PER_DEG_LAT = 111_320.0
 
@@ -146,6 +158,7 @@ class Simulator:
             "capturing": False,
             "verdict": "CONFIRMED",
         }
+        self._scenario_id = SCENARIO_ID_PATROL  # baseline ch.61 registry id
         self._capture_tick = 0
         self._rgb_since_thermal = 0
         self._media_count = 0
@@ -210,6 +223,7 @@ class Simulator:
             "capturing": False,
             "verdict": verdict,
         }
+        self._scenario_id = VERDICT_SCENARIO_ID[verdict]
         self._capture_tick = 0
         self._rgb_since_thermal = 0
         self._media_count = 0
@@ -239,6 +253,7 @@ class Simulator:
             # verdict of the last run is kept for observability (status display only)
             "verdict": self._fire_scenario["verdict"],
         }
+        self._scenario_id = SCENARIO_ID_PATROL  # back to normal patrol
         self._speed_mps = CRUISE_SPEED_MPS
         self._target = None
         self._goto_started_at = None
@@ -713,6 +728,7 @@ class Simulator:
                 "armed": self._armed,
             },
             "target": self._target,
+            "currentScenarioId": self._scenario_id,
             "fireScenario": {
                 "active": self._fire_scenario["active"],
                 "latitude": (

@@ -624,3 +624,23 @@ export function polygonFillOpacity(index: number, total: number): number {
   if (index === total - 1) return 0.32
   return Math.min(0.08 + index * 0.08, 0.24)
 }
+
+/* ---------------- 模拟器状态 ---------------- */
+
+/** GET /simulator/status 宽松解析 currentScenarioId（兼容嵌套/别名/null 值） */
+export function parseSimulatorStatus(data: unknown): string | null {
+  const rec = asRecord(data)
+  if (!rec) return null
+  const v = pickFirst(
+    rec,
+    'currentScenarioId',
+    'currentScenario.scenarioId',
+    'currentScenario.id',
+    'activeScenarioId',
+    'scenarioId',
+  )
+  if (v === undefined) return null
+  const s = String(v).trim()
+  if (!s || s.toLowerCase() === 'null' || s.toLowerCase() === 'none') return null
+  return s
+}

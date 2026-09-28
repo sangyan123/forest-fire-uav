@@ -32,6 +32,8 @@
 
 | 2026-09-28 | D3：火场分析可视化（F05 扩散多边形 + F06 趋势面板） | ai-service 分割mock支持growthStep（150m→240m→330m每轮+90m，面积πr²）；backend新增7文件（FirePolygon/FireTrack实体+FireAnalysisService+GeoUtils扩展，3端点：POST analysis仅CONFIRMED/TRACKING放行、GET polygons升序GeoJSON、GET tracking最新趋势；fire_polygon.polygon按DDL实际为MultiPolygon写入，radiusMeters由面积派生）；frontend 火场分析按钮+扩散年轮叠加（透明度梯度0.08起每代+0.08最新0.32红描边）+poly-new扩散动画+趋势面板（趋势/方向罗盘/速度/面积增长率/轮次），40条单测+24步链路PASS；**D3端到端验收**：CONFIRMED事件两轮分析半径150→240m面积70686→180956m²、polygons两条升序、tracking EXPANDING/63.2°/1.8m/s/0.16、前端bundle含D3代码 |
 
+| 2026-09-28 | D4：演示固化（场景注册表+状态历史+重置脚本+讲稿） | mock-uav 场景注册表（POST /simulator/scenarios/{scenarioId}/start：scenario-01正常巡检幂等/scenario-02火情发现/scenario-04误报，未知号40001，currentScenarioId透出，22项断言）；backend fire_incident.extra.statusHistory状态历史（recordStatusChange统一入口覆盖创建/PATCH/核验全部5条路径，列表5条详情全量，scenarioType等extra字段保留）；frontend 顶栏三场景按钮（currentScenarioId驱动高亮+2s轮询校正+按scenarioType等待各自事件）、时间线自动切换后端历史（顺手修复D2遗留的时间线合并bug）；新增scripts/reset-demo.sql+.sh（一键清空演示数据+mock-uav电量回满）与docs/demo/客户演示讲稿.md（5分钟剧本/备答/风险应对）；**D4端到端验收**：reset→scenario-02→自动发现→statusHistory=[SUSPECTED]→核验CONFIRMED→[S,V,C]→PATCH→[+TRACKING]→scenario-04→FALSE_ALARM(0.287)→[S,V,F]→scenario-01恢复→未知号400→前端200 |
+
 ------
 
 ## 二、未决 Issue（按基线第71章流程登记）
