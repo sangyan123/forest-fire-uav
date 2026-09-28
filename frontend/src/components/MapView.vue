@@ -64,11 +64,11 @@ const emit = defineEmits<{
 }>()
 
 const DEFAULT_ALTITUDE = 120
-/** 演示区 bbox 中心（30.10~30.14N, 114.11~114.15E） */
+/** 演示区中心（火场常用区域） */
 const DEFAULT_CENTER: L.LatLngExpression = [30.12, 114.13]
 const DEFAULT_ZOOM = 15
-/** 离线瓦片覆盖区外扩钳制，防止拖出无瓦片区 */
-const DEMO_BOUNDS = L.latLngBounds([30.08, 114.09], [30.16, 114.17])
+/** 演示区 bbox（z13 覆盖范围 29.85~30.45N, 113.85~114.45E），钳制防止拖出有瓦片区 */
+const DEMO_BOUNDS = L.latLngBounds([29.85, 113.85], [30.45, 114.45])
 /** 1x1 透明 png：缺失瓦片不显示破图 */
 const TRANSPARENT_TILE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
