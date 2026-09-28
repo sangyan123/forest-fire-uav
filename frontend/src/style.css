@@ -530,3 +530,359 @@ body {
   border-radius: 4px;
   background: rgba(120, 160, 220, 0.25);
 }
+
+/* ---------- 顶栏右侧操作区 ---------- */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* ---------- 注入火情场景主按钮 ---------- */
+.fire-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  border: 1px solid rgba(244, 63, 94, 0.6);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.28), rgba(251, 146, 60, 0.22));
+  color: #ffd9de;
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  box-shadow:
+    0 0 12px rgba(244, 63, 94, 0.35),
+    inset 0 0 8px rgba(244, 63, 94, 0.15);
+  transition: all 0.15s;
+}
+
+.fire-btn:hover {
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.42), rgba(251, 146, 60, 0.34));
+  box-shadow: 0 0 18px rgba(244, 63, 94, 0.5);
+}
+
+.fire-btn:disabled {
+  cursor: progress;
+  opacity: 0.78;
+}
+
+.fire-btn.active {
+  border-color: rgba(148, 163, 184, 0.55);
+  background: rgba(148, 163, 184, 0.14);
+  color: #cbd5e1;
+  box-shadow: none;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fda4af;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- 火情事件 marker（火焰圆点 + 脉冲环） ---------- */
+.fire-div-icon {
+  background: transparent;
+  border: none;
+}
+
+.fire-marker {
+  position: relative;
+  width: 26px;
+  height: 26px;
+}
+
+.fire-core {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--fire-color);
+  border-radius: 50%;
+  background: rgba(10, 16, 30, 0.88);
+  box-shadow: 0 0 10px var(--fire-color);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.fire-pulse {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border: 2px solid var(--fire-color);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: fire-pulse 1.6s ease-out infinite;
+}
+
+@keyframes fire-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+/* ---------- 火情事件卡片（地图浮层） ---------- */
+.incident-card {
+  position: absolute;
+  z-index: 1200;
+  width: 266px;
+  padding: 12px 14px;
+  border: 1px solid rgba(244, 63, 94, 0.55);
+  border-radius: 10px;
+  background: rgba(12, 21, 38, 0.96);
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.5),
+    0 0 14px rgba(244, 63, 94, 0.22);
+  font-size: 12px;
+}
+
+.ic-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ic-close {
+  padding: 2px 5px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.ic-close:hover {
+  color: var(--text);
+}
+
+.ic-no {
+  margin: 7px 0 4px;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.ic-verdict {
+  margin-top: 6px;
+  padding: 6px 9px;
+  border: 1px dashed rgba(250, 204, 21, 0.45);
+  border-radius: 6px;
+  background: rgba(250, 204, 21, 0.06);
+  color: #fde047;
+  font-size: 12px;
+}
+
+.ic-verdict b {
+  color: #fff7cf;
+}
+
+.ic-verdict small {
+  color: var(--muted);
+}
+
+.ic-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.ic-btn {
+  padding: 7px 0;
+  font-size: 12px;
+}
+
+.ic-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ic-status-row {
+  margin-top: 8px;
+}
+
+.ic-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.ic-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.ic-select option {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+/* ---------- 右侧火情事件列表 ---------- */
+.fire-count {
+  margin-left: 6px;
+  color: #fda4af;
+  font-size: 11px;
+}
+
+.fire-empty {
+  color: var(--muted);
+}
+
+.fire-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 236px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.fire-list li {
+  padding: 8px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.fire-list li:hover {
+  border-color: rgba(244, 63, 94, 0.45);
+}
+
+.fire-list li.active {
+  border-color: rgba(244, 63, 94, 0.7);
+  background: rgba(244, 63, 94, 0.08);
+}
+
+.fire-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fire-no {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fire-sub {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.fire-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+  vertical-align: 1px;
+}
+
+/* 状态 chip 配色（列表与卡片共用） */
+.chip.fire-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  font-size: 11.5px;
+}
+
+.chip.fs-SUSPECTED {
+  color: #fdba74;
+  border-color: rgba(251, 146, 60, 0.55);
+  background: rgba(251, 146, 60, 0.1);
+}
+
+.chip.fs-VERIFYING {
+  color: #fde047;
+  border-color: rgba(250, 204, 21, 0.5);
+  background: rgba(250, 204, 21, 0.08);
+}
+
+.chip.fs-CONFIRMED {
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.55);
+  background: rgba(244, 63, 94, 0.12);
+}
+
+.chip.fs-FALSE_ALARM {
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.45);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.chip.fs-TRACKING {
+  color: #f0abfc;
+  border-color: rgba(232, 89, 240, 0.5);
+  background: rgba(232, 89, 240, 0.1);
+}
+
+.chip.fs-PROCESSING {
+  color: #c4b5fd;
+  border-color: rgba(168, 85, 247, 0.5);
+  background: rgba(168, 85, 247, 0.1);
+}
+
+.chip.fs-RESOLVED {
+  color: #94a3b8;
+  border-color: rgba(100, 116, 139, 0.5);
+  background: rgba(100, 116, 139, 0.1);
+}
+
+.chip.fs-CLOSED {
+  color: #64748b;
+  border-color: rgba(71, 85, 105, 0.5);
+  background: rgba(71, 85, 105, 0.12);
+}
+
+.chip.fs-OTHER {
+  color: var(--muted);
+  border-color: var(--line-soft);
+}
+
+.fire-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fire-list::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: rgba(120, 160, 220, 0.25);
+}

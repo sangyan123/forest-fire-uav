@@ -30,6 +30,14 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
+        <!-- PostGIS geometry 列映射（fire_point.geometry NOT NULL / fire_incident.geometry /
+             mission.origin/target / media_file.geometry / fire_detection.geometry /
+             mission_waypoint.geometry）。版本与 Boot 3.3.5 管理的 hibernate-core 6.5.3.Final 对齐。 -->
+        <dependency>
+            <groupId>org.hibernate.orm</groupId>
+            <artifactId>hibernate-spatial</artifactId>
+            <version>6.5.3.Final</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>

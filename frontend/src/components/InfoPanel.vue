@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { TrackedCommand, UavState } from '../types'
+import FireIncidentList from './FireIncidentList.vue'
+import type { FireIncident, TrackedCommand, UavState } from '../types'
 import { zhCmdStatus, zhGpsStatus, zhUavStatus } from '../labels'
 
 const props = defineProps<{
@@ -9,9 +10,14 @@ const props = defineProps<{
   lastUpdate: number | null
   now: number
   commands: TrackedCommand[]
+  incidents: FireIncident[]
+  selectedIncidentId: string | null
 }>()
 
-defineEmits<{ (e: 'quick', commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME'): void }>()
+defineEmits<{
+  (e: 'quick', commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME'): void
+  (e: 'select-incident', id: string): void
+}>()
 
 const battery = computed<number | null>(() => {
   const b = Number(props.state?.battery)
@@ -79,6 +85,13 @@ function timeText(ts: number): string {
         </div>
       </template>
     </section>
+
+    <FireIncidentList
+      :incidents="incidents"
+      :now="now"
+      :selected-id="selectedIncidentId"
+      @select="$emit('select-incident', $event)"
+    />
 
     <section class="card">
       <h3>快捷指令</h3>

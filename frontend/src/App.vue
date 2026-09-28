@@ -3,14 +3,29 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import InfoPanel from './components/InfoPanel.vue'
 import MapView from './components/MapView.vue'
 import Toasts from './components/Toasts.vue'
-import { getCommand, getUavState, postCommand } from './api'
+import {
+  createMission,
+  getCommand,
+  getFireIncidents,
+  getUavState,
+  missionIdOf,
+  patchIncidentStatus,
+  postCommand,
+  postIncidentVerification,
+  startFireScenario,
+  startMission,
+  stopFireScenario,
+} from './api'
+import { parseIncidents, parseVerification, zhDecision, zhFireStatus } from './fire'
 import { TERMINAL_CMD_STATUSES, zhCmdStatus, zhCmdType } from './labels'
 import { pushToast } from './toast'
-import type { CommandType, GotoPayload, TrackedCommand, UavState } from './types'
+import type { CommandType, FireIncident, GotoPayload, TrackedCommand, UavState, VerificationResult } from './types'
 
 const DEVICE_ID = 'UAV-001'
 const STATE_POLL_MS = 1000
 const COMMAND_POLL_MS = 1000
+const INCIDENT_POLL_MS = 2000
+const SCENARIO_WAIT_TIMEOUT_MS = 20000
 const MAX_TRACKED = 12
 
 const state = ref<UavState | null>(null)
@@ -24,6 +39,167 @@ const pollTimers = new Map<string, ReturnType<typeof setInterval>>()
 
 let stateTimer: ReturnType<typeof setInterval> | undefined
 let clockTimer: ReturnType<typeof setInterval> | undefined
+let incidentTimer: ReturnType<typeof setInterval> | undefined
+
+/* ---------------- 火情事件 ---------------- */
+
+const incidents = ref<FireIncident[]>([])
+const selectedIncidentId = ref<string | null>(null)
+const focus = ref<{ id: string; seq: number } | null>(null)
+let focusSeq = 0
+const verifications = ref<Record<string, VerificationResult>>({})
+const dispatched = ref<Record<string, string>>({})
+const busy = ref<{ incidentId: string; action: 'verify' | 'dispatch' } | null>(null)
+
+const knownIncidentIds = new Set<string>()
+
+async function pollIncidents(): Promise<void> {
+  try {
+    const raw = await getFireIncidents()
+    const list = parseIncidents(raw)
+    incidents.value = list
+    for (const inc of list) knownIncidentIds.add(inc.id)
+    // 注入场景后首次发现新事件 -> 解除按钮 loading
+    if (scenarioLoading.value && scenarioSnapshot !== null) {
+      const snapshot = scenarioSnapshot
+      if (list.some((i) => !snapshot.has(i.id))) resolveScenarioWait(true)
+    }
+  } catch {
+    // 事件列表拉取失败静默重试（连接角标由无人机状态轮询负责）
+  }
+}
+
+/* ---------------- 注入/停止演示场景 ---------------- */
+
+const scenarioActive = ref(false)
+const scenarioLoading = ref(false)
+let scenarioSnapshot: Set<string> | null = null
+let scenarioWaitToken = 0
+
+function resolveScenarioWait(found: boolean): void {
+  scenarioLoading.value = false
+  scenarioSnapshot = null
+  scenarioWaitToken++
+  if (found) {
+    pushToast('success', '火情事件已生成，无人机前往核查')
+  }
+}
+
+async function onToggleScenario(): Promise<void> {
+  if (scenarioLoading.value) return
+  if (!scenarioActive.value) {
+    try {
+      await startFireScenario()
+    } catch (e) {
+      pushToast('error', `注入火情场景失败：${e instanceof Error ? e.message : '未知错误'}`)
+      return
+    }
+    scenarioActive.value = true
+    pushToast('info', '已注入，无人机前往核查')
+    // loading 直到事件列表出现新事件，或超时兜底
+    scenarioLoading.value = true
+    scenarioSnapshot = new Set(knownIncidentIds)
+    const token = ++scenarioWaitToken
+    window.setTimeout(() => {
+      if (scenarioLoading.value && token === scenarioWaitToken) {
+        resolveScenarioWait(false)
+        pushToast('info', '暂未在事件列表中看到新事件，可稍后继续观察')
+      }
+    }, SCENARIO_WAIT_TIMEOUT_MS)
+    void pollIncidents()
+  } else {
+    try {
+      await stopFireScenario()
+    } catch (e) {
+      pushToast('error', `停止场景失败：${e instanceof Error ? e.message : '未知错误'}`)
+      return
+    }
+    scenarioActive.value = false
+    pushToast('info', '演示场景已停止')
+  }
+}
+
+/* ---------------- 事件卡片动作 ---------------- */
+
+function onSelectFromMap(id: string): void {
+  selectedIncidentId.value = id
+}
+
+function onSelectFromList(id: string): void {
+  selectedIncidentId.value = id
+  focus.value = { id, seq: ++focusSeq }
+}
+
+function onCloseCard(): void {
+  selectedIncidentId.value = null
+}
+
+async function onVerify(id: string): Promise<void> {
+  if (busy.value) return
+  busy.value = { incidentId: id, action: 'verify' }
+  try {
+    const raw = await postIncidentVerification(id)
+    const v = parseVerification(raw)
+    verifications.value = { ...verifications.value, [id]: v }
+    if (v.decision) {
+      const conf = v.confidence !== null ? `（置信度 ${v.confidence}%）` : ''
+      pushToast('success', `AI 核验完成：${zhDecision(v.decision)}${conf}`)
+    } else {
+      pushToast('info', '核验已触发，后端未返回明确结论')
+    }
+    void pollIncidents()
+  } catch (e) {
+    pushToast('error', `触发核验失败：${e instanceof Error ? e.message : '未知错误'}`)
+  } finally {
+    busy.value = null
+  }
+}
+
+async function onDispatch(id: string): Promise<void> {
+  if (busy.value) return
+  const inc = incidents.value.find((i) => i.id === id)
+  if (!inc || inc.latitude === null || inc.longitude === null) {
+    pushToast('error', '该事件缺少火点坐标，无法派单')
+    return
+  }
+  busy.value = { incidentId: id, action: 'dispatch' }
+  try {
+    const mission = await createMission({
+      missionType: 'FIRE_VERIFICATION',
+      incidentId: id,
+      target: {
+        latitude: inc.latitude,
+        longitude: inc.longitude,
+        altitude: 120,
+        altitudeMode: 'RELATIVE_TO_TAKEOFF',
+      },
+      priority: 90,
+      requiredCapabilities: ['RGB', 'THERMAL'],
+    })
+    const mid = missionIdOf(mission)
+    if (mid === null) throw new Error('后端未返回任务 ID')
+    await startMission(mid)
+    dispatched.value = { ...dispatched.value, [id]: mid }
+    pushToast('success', `核验任务 ${mid} 已派单并启动，无人机前往核查`)
+    void pollIncidents()
+  } catch (e) {
+    pushToast('error', `派单核验失败：${e instanceof Error ? e.message : '未知错误'}`)
+  } finally {
+    busy.value = null
+  }
+}
+
+async function onStatusChange(id: string, status: string): Promise<void> {
+  try {
+    await patchIncidentStatus(id, status)
+    pushToast('success', `事件状态已流转：${zhFireStatus(status)}`)
+    void pollIncidents()
+  } catch (e) {
+    pushToast('error', `状态流转失败：${e instanceof Error ? e.message : '未知错误'}`)
+  }
+}
+
+/* ---------------- 无人机监控（原有） ---------------- */
 
 async function pollState(): Promise<void> {
   try {
@@ -119,9 +295,13 @@ function onGoto(payload: GotoPayload): void {
 
 onMounted(() => {
   void pollState()
+  void pollIncidents()
   stateTimer = setInterval(() => {
     void pollState()
   }, STATE_POLL_MS)
+  incidentTimer = setInterval(() => {
+    void pollIncidents()
+  }, INCIDENT_POLL_MS)
   clockTimer = setInterval(() => {
     now.value = Date.now()
   }, 500)
@@ -130,6 +310,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (stateTimer !== undefined) clearInterval(stateTimer)
   if (clockTimer !== undefined) clearInterval(clockTimer)
+  if (incidentTimer !== undefined) clearInterval(incidentTimer)
   for (const id of [...pollTimers.keys()]) stopPolling(id)
 })
 </script>
@@ -139,22 +320,53 @@ onUnmounted(() => {
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark"></span>
-        森林防火无人机监控 <small>Demo · Vue 3 + Leaflet</small>
+        森林防火无人机智能系统 <small>Demo · Vue 3 + Leaflet</small>
       </div>
-      <div class="conn" :class="connectionLost ? 'bad' : 'ok'">
-        <span class="dot"></span>
-        {{ connectionLost ? '后端连接断开' : '后端已连接' }}
+      <div class="topbar-right">
+        <button
+          class="fire-btn"
+          :class="{ active: scenarioActive, loading: scenarioLoading }"
+          :disabled="scenarioLoading"
+          @click="onToggleScenario"
+        >
+          <span v-if="scenarioLoading" class="spinner"></span>
+          <template v-if="scenarioLoading">等待火情事件生成…</template>
+          <template v-else-if="scenarioActive">■ 停止场景</template>
+          <template v-else>🔥 注入火情场景</template>
+        </button>
+        <div class="conn" :class="connectionLost ? 'bad' : 'ok'">
+          <span class="dot"></span>
+          {{ connectionLost ? '后端连接断开' : '后端已连接' }}
+        </div>
       </div>
     </header>
     <main class="content">
-      <MapView :state="state" @goto="onGoto" />
+      <MapView
+        :state="state"
+        :incidents="incidents"
+        :now="now"
+        :selected-id="selectedIncidentId"
+        :focus="focus"
+        :verifications="verifications"
+        :dispatched="dispatched"
+        :busy="busy"
+        @goto="onGoto"
+        @select-incident="onSelectFromMap"
+        @verify="onVerify"
+        @dispatch="onDispatch"
+        @status-change="onStatusChange"
+        @close-card="onCloseCard"
+      />
       <InfoPanel
         :state="state"
         :connection-lost="connectionLost"
         :last-update="lastUpdateAt"
         :now="now"
         :commands="tracked"
+        :incidents="incidents"
+        :selected-incident-id="selectedIncidentId"
         @quick="onQuick"
+        @select-incident="onSelectFromList"
       />
     </main>
     <Toasts />

@@ -3,6 +3,7 @@ package com.forestfire.uav.gateway.mqtt;
 import java.nio.charset.StandardCharsets;
 
 import com.forestfire.uav.gateway.service.CommandResultService;
+import com.forestfire.uav.gateway.service.MediaIngestService;
 import com.forestfire.uav.gateway.service.TelemetryIngestService;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
@@ -17,6 +18,7 @@ import org.slf4j.LoggerFactory;
  *
  * <ul>
  *   <li>{@code uav/{deviceId}/state}          -> TelemetryIngestService (backend telemetry-ingest)</li>
+ *   <li>{@code uav/{deviceId}/media}          -> MediaIngestService       (backend media-ingest)</li>
  *   <li>{@code uav/{deviceId}/command/result} -> CommandResultService  (backend command status PATCH)</li>
  * </ul>
  */
@@ -25,16 +27,20 @@ public class GatewayMqttCallback implements MqttCallbackExtended {
     private static final Logger log = LoggerFactory.getLogger(GatewayMqttCallback.class);
 
     public static final String TOPIC_STATE_FILTER = "uav/+/state";
+    public static final String TOPIC_MEDIA_FILTER = "uav/+/media";
     public static final String TOPIC_COMMAND_RESULT_FILTER = "uav/+/command/result";
 
     private final TelemetryIngestService telemetryIngestService;
+    private final MediaIngestService mediaIngestService;
     private final CommandResultService commandResultService;
 
     private volatile MqttClient client;
 
     public GatewayMqttCallback(TelemetryIngestService telemetryIngestService,
+                               MediaIngestService mediaIngestService,
                                CommandResultService commandResultService) {
         this.telemetryIngestService = telemetryIngestService;
+        this.mediaIngestService = mediaIngestService;
         this.commandResultService = commandResultService;
     }
 
@@ -50,10 +56,11 @@ public class GatewayMqttCallback implements MqttCallbackExtended {
         }
         try {
             mqttClient.subscribe(
-                    new String[] {TOPIC_STATE_FILTER, TOPIC_COMMAND_RESULT_FILTER},
-                    new int[] {1, 1});
-            log.info("MQTT {}subscribed to [{}] and [{}] (QoS 1) on {}",
-                    reconnect ? "re-" : "", TOPIC_STATE_FILTER, TOPIC_COMMAND_RESULT_FILTER, serverURI);
+                    new String[] {TOPIC_STATE_FILTER, TOPIC_MEDIA_FILTER, TOPIC_COMMAND_RESULT_FILTER},
+                    new int[] {1, 1, 1});
+            log.info("MQTT {}subscribed to [{}], [{}] and [{}] (QoS 1) on {}",
+                    reconnect ? "re-" : "", TOPIC_STATE_FILTER, TOPIC_MEDIA_FILTER,
+                    TOPIC_COMMAND_RESULT_FILTER, serverURI);
         } catch (MqttException e) {
             log.error("MQTT subscribe failed", e);
         }
@@ -73,6 +80,8 @@ public class GatewayMqttCallback implements MqttCallbackExtended {
             String[] parts = topic.split("/");
             if (parts.length == 3 && "uav".equals(parts[0]) && "state".equals(parts[2])) {
                 telemetryIngestService.forward(parts[1], payload);
+            } else if (parts.length == 3 && "uav".equals(parts[0]) && "media".equals(parts[2])) {
+                mediaIngestService.forward(parts[1], payload);
             } else if (parts.length == 4 && "uav".equals(parts[0])
                     && "command".equals(parts[2]) && "result".equals(parts[3])) {
                 commandResultService.forward(parts[1], payload);

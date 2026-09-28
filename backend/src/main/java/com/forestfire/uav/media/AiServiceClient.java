@@ -1,0 +1,127 @@
+package com.forestfire.uav.media;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.forestfire.uav.common.BusinessException;
+import com.forestfire.uav.common.ErrorCode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * AI Service 客户端（07号第21~23章，mock provider）：
+ * <ul>
+ *   <li>POST /ai/v1/detection      — F01 火情检测（detections[]）</li>
+ *   <li>POST /ai/v1/localization   — F03 火点定位（lat/lon/accuracy/method）</li>
+ *   <li>POST /ai/v1/verification   — F04 二次核验（decision/confidence/evidence）</li>
+ * </ul>
+ * 响应统一 {code, message, data}；code!=0 或网络异常抛出，由调用方决定降级策略。
+ */
+@Service
+public class AiServiceClient {
+
+    private static final Logger log = LoggerFactory.getLogger(AiServiceClient.class);
+
+    private final RestClient aiServiceRestClient;
+
+    public AiServiceClient(RestClient aiServiceRestClient) {
+        this.aiServiceRestClient = aiServiceRestClient;
+    }
+
+    /** F01 单个检测目标 */
+    public record DetectionItem(String className, double confidence, List<Double> bbox) {
+    }
+
+    /** F03 定位结果（07号第22章 data） */
+    public record LocalizationResult(Double latitude, Double longitude, Double accuracy, String method) {
+    }
+
+    /** F04 核验结果（07号第23章 data） */
+    public record VerificationResult(String decision, Double confidence, Map<String, Double> evidence) {
+    }
+
+    /** F01 火情检测：入参 {taskId, mediaId}，出 data.detections[] */
+    public List<DetectionItem> detect(UUID taskId, UUID mediaId) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("taskId", taskId.toString());
+        body.put("mediaId", mediaId.toString());
+        JsonNode data = postAndUnwrap("/ai/v1/detection", body);
+        List<DetectionItem> items = new ArrayList<>();
+        for (JsonNode d : data.path("detections")) {
+            List<Double> bbox = new ArrayList<>();
+            for (JsonNode b : d.path("bbox")) {
+                bbox.add(b.asDouble());
+            }
+            items.add(new DetectionItem(d.path("class").asText(null), d.path("confidence").asDouble(0), bbox));
+        }
+        return items;
+    }
+
+    /** F03 火点定位：入参 {taskId, media:{position:{latitude,longitude}}}，出 data{latitude,longitude,accuracy,method} */
+    public LocalizationResult localize(UUID taskId, double latitude, double longitude) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("taskId", taskId.toString());
+        body.put("media", Map.of("position", Map.of("latitude", latitude, "longitude", longitude)));
+        JsonNode data = postAndUnwrap("/ai/v1/localization", body);
+        return new LocalizationResult(
+                doubleOrNull(data, "latitude"),
+                doubleOrNull(data, "longitude"),
+                doubleOrNull(data, "accuracy"),
+                textOrNull(data, "method"));
+    }
+
+    /** F04 二次核验：入参 {taskId, incidentId, evidence:{rgb,thermal,temporal,spatial}}，出 data{decision,confidence,evidence} */
+    public VerificationResult verify(UUID taskId, String incidentId, Map<String, Object> evidence) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("taskId", taskId.toString());
+        body.put("incidentId", incidentId);
+        body.put("evidence", evidence);
+        JsonNode data = postAndUnwrap("/ai/v1/verification", body);
+        Map<String, Double> ev = new LinkedHashMap<>();
+        data.path("evidence").fields().forEachRemaining(e -> {
+            if (e.getValue().isNumber()) {
+                ev.put(e.getKey(), e.getValue().asDouble());
+            }
+        });
+        return new VerificationResult(textOrNull(data, "decision"), doubleOrNull(data, "confidence"), ev);
+    }
+
+    // ---------------- 内部工具 ----------------
+
+    /** POST 并解包 {code,message,data}：code!=0 → 50000（约定外补充码） */
+    private JsonNode postAndUnwrap(String uri, Object body) {
+        JsonNode root = aiServiceRestClient.post()
+                .uri(uri)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .body(JsonNode.class);
+        if (root == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI service empty response: " + uri);
+        }
+        int code = root.path("code").asInt(-1);
+        if (code != 0) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "AI service error(" + code + "): " + root.path("message").asText(""));
+        }
+        return root.path("data");
+    }
+
+    private static String textOrNull(JsonNode node, String field) {
+        JsonNode v = node.path(field);
+        return v.isMissingNode() || v.isNull() ? null : v.asText();
+    }
+
+    private static Double doubleOrNull(JsonNode node, String field) {
+        JsonNode v = node.path(field);
+        return v.isMissingNode() || v.isNull() || !v.isNumber() ? null : v.asDouble();
+    }
+}

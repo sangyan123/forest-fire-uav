@@ -7,6 +7,13 @@ UAV_COMMAND_RESULT messages on ``uav/{deviceId}/command/result``.
 Message structures are identical to:
   docs/protocol/uav-json-schema/examples/uav-state.json
   docs/protocol/uav-json-schema/examples/uav-command-result.json
+  docs/protocol/uav-json-schema/examples/uav-media.json
+  docs/protocol/uav-json-schema/examples/uav-event.json
+
+Fire scenario (customer demo): POST /simulator/scenarios/fire/start flies the UAV to the
+fire point at 15 m/s and, on arrival (< 10 m), automatically starts "fire capture" — one
+UAV_MEDIA on ``uav/{deviceId}/media`` (QoS 1) every 2 s (4 RGB images, then 1 thermal image,
+repeating) until POST /simulator/scenarios/fire/stop restores the rectangular wayline patrol.
 """
 
 import asyncio
@@ -34,6 +41,14 @@ TICK_SECONDS = 1.0
 ARRIVAL_RADIUS_M = CRUISE_SPEED_MPS * TICK_SECONDS  # < 8 m -> arrived
 BATTERY_DRAIN_PER_TICK = 1.0 / 60.0  # 1% per minute
 BATTERY_FLOOR = 5.0
+
+# Fire scenario: default fire point ~800 m north-east of Home.
+FIRE_DEFAULT_LAT = 30.1235
+FIRE_DEFAULT_LON = 114.1285
+FIRE_TRANSIT_SPEED_MPS = 15.0  # demo pace; restored to CRUISE_SPEED_MPS on arrival
+FIRE_ARRIVAL_RADIUS_M = 10.0  # < 10 m -> arrived, capture starts
+MEDIA_CAPTURE_INTERVAL_TICKS = 2  # one UAV_MEDIA every 2 s (1 Hz tick)
+RGB_IMAGES_PER_THERMAL = 4  # every 4 RGB images insert 1 THERMAL_IMAGE
 
 M_PER_DEG_LAT = 111_320.0
 
@@ -87,6 +102,7 @@ class Simulator:
         self._longitude = HOME_LON
         self._heading = 0.0
         self._moving = False
+        self._speed_mps = CRUISE_SPEED_MPS
 
         # battery: 100%, -1/60 per tick, floor 5
         self._battery = 100.0
@@ -108,6 +124,17 @@ class Simulator:
         self._target = None
         self._goto_started_at = None
         self._pending_command_id = None
+
+        # fire scenario (customer demo)
+        self._fire_scenario = {
+            "active": False,
+            "latitude": None,
+            "longitude": None,
+            "capturing": False,
+        }
+        self._capture_tick = 0
+        self._rgb_since_thermal = 0
+        self._media_count = 0
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -145,6 +172,56 @@ class Simulator:
                 pass
         self._task = None
         log.info("Simulator stopped")
+
+    # ------------------------------------------------------------------
+    # fire scenario (customer demo)
+    # ------------------------------------------------------------------
+
+    def start_fire_scenario(self, latitude: float | None = None, longitude: float | None = None) -> None:
+        """Fly to the fire point (default north-east of Home) at 15 m/s and start fire capture on arrival."""
+        fire_lat = float(latitude) if latitude is not None else FIRE_DEFAULT_LAT
+        fire_lon = float(longitude) if longitude is not None else FIRE_DEFAULT_LON
+        self._fire_scenario = {
+            "active": True,
+            "latitude": fire_lat,
+            "longitude": fire_lon,
+            "capturing": False,
+        }
+        self._capture_tick = 0
+        self._rgb_since_thermal = 0
+        self._media_count = 0
+        self._speed_mps = FIRE_TRANSIT_SPEED_MPS
+        self._target = {
+            "latitude": fire_lat,
+            "longitude": fire_lon,
+            "altitude": None,
+            "altitudeMode": None,
+        }
+        self._flight_mode = "WAYLINE"
+        self._flight_status = "FLYING"
+        self._armed = True
+        self._goto_started_at = None
+        self._pending_command_id = None
+        log.info("Fire scenario started: fire point (%s, %s), transit at %.1f m/s",
+                 fire_lat, fire_lon, FIRE_TRANSIT_SPEED_MPS)
+        self._publish_fire_scenario_event(fire_lat, fire_lon)
+
+    def stop_fire_scenario(self) -> None:
+        """Stop fire capture, clear the scenario and restore the rectangular wayline patrol (8 m/s)."""
+        self._fire_scenario = {
+            "active": False,
+            "latitude": None,
+            "longitude": None,
+            "capturing": False,
+        }
+        self._speed_mps = CRUISE_SPEED_MPS
+        self._target = None
+        self._goto_started_at = None
+        self._pending_command_id = None
+        self._flight_mode = "WAYLINE"
+        self._flight_status = "FLYING"
+        self._waypoint_index = self._nearest_waypoint_index()
+        log.info("Fire scenario stopped; restored wayline patrol at %.1f m/s", CRUISE_SPEED_MPS)
 
     async def _run_loop(self) -> None:
         log.info("Simulation loop running at %.1f Hz (speed %.1f m/s)", 1.0 / TICK_SECONDS, CRUISE_SPEED_MPS)
@@ -247,7 +324,9 @@ class Simulator:
                 self._flight_mode = "WAYLINE"
             self._publish_result(command_id, "SUCCESS", {})
         elif command_type in ("CAPTURE_RGB", "CAPTURE_THERMAL"):
-            self._publish_result(command_id, "SUCCESS", {})
+            media_type = "THERMAL_IMAGE" if command_type == "CAPTURE_THERMAL" else "RGB_IMAGE"
+            media_id = self._publish_media(media_type)
+            self._publish_result(command_id, "SUCCESS", {"mediaId": media_id})
         else:
             log.warning("Unknown commandType %s (commandId=%s)", command_type, command_id)
             self._publish_result(command_id, "FAILED", {"message": f"unknown commandType: {command_type}"})
@@ -276,7 +355,9 @@ class Simulator:
     def _tick(self) -> None:
         self._moving = False
         if self._flight_status not in ("PAUSED", "LANDED"):
-            if self._flight_mode in ("GOTO", "RETURN_HOME") and self._target is not None:
+            if self._fire_scenario["active"]:
+                self._tick_fire_scenario()
+            elif self._flight_mode in ("GOTO", "RETURN_HOME") and self._target is not None:
                 arrived = not self._step_toward(self._target["latitude"], self._target["longitude"])
                 self._moving = not arrived
                 if arrived:
@@ -299,17 +380,52 @@ class Simulator:
         self._publish_state()
         self._publish_telemetry()
 
-    def _step_toward(self, target_lat: float, target_lon: float) -> bool:
-        """Move one tick (8 m) toward the target. Returns True while still en route."""
+    def _tick_fire_scenario(self) -> None:
+        """Transit to the fire point at 15 m/s, then hover and auto-capture media every 2 s."""
+        if not self._fire_scenario["capturing"]:
+            arrived = not self._step_toward(
+                self._fire_scenario["latitude"],
+                self._fire_scenario["longitude"],
+                speed=FIRE_TRANSIT_SPEED_MPS,
+                arrival_radius=FIRE_ARRIVAL_RADIUS_M,
+            )
+            self._moving = not arrived
+            if arrived:
+                self._fire_scenario["capturing"] = True
+                self._speed_mps = CRUISE_SPEED_MPS  # transit done -> demo cruise speed again
+                self._flight_mode = "HOVER"
+                self._flight_status = "HOVERING"
+                log.info("Fire scenario: arrived at fire point (%.6f, %.6f), media capture started",
+                         self._latitude, self._longitude)
+        else:
+            # hovering over the fire point: one UAV_MEDIA every MEDIA_CAPTURE_INTERVAL_TICKS ticks
+            self._capture_tick += 1
+            if self._capture_tick % MEDIA_CAPTURE_INTERVAL_TICKS == 0:
+                media_type = (
+                    "THERMAL_IMAGE"
+                    if self._rgb_since_thermal >= RGB_IMAGES_PER_THERMAL
+                    else "RGB_IMAGE"
+                )
+                if media_type == "THERMAL_IMAGE":
+                    self._rgb_since_thermal = 0
+                else:
+                    self._rgb_since_thermal += 1
+                self._publish_media(media_type)
+
+    def _step_toward(self, target_lat: float, target_lon: float, speed: float | None = None,
+                     arrival_radius: float | None = None) -> bool:
+        """Move one tick toward the target. Returns True while still en route."""
+        speed = CRUISE_SPEED_MPS if speed is None else speed
+        arrival_radius = ARRIVAL_RADIUS_M if arrival_radius is None else arrival_radius
         distance = _distance_m(self._latitude, self._longitude, target_lat, target_lon)
-        if distance <= ARRIVAL_RADIUS_M:
+        if distance <= arrival_radius:
             self._latitude = target_lat
             self._longitude = target_lon
             return False
         self._heading = _bearing_deg(self._latitude, self._longitude, target_lat, target_lon)
         rad = math.radians(self._heading)
-        step_north = CRUISE_SPEED_MPS * TICK_SECONDS * math.cos(rad)
-        step_east = CRUISE_SPEED_MPS * TICK_SECONDS * math.sin(rad)
+        step_north = speed * TICK_SECONDS * math.cos(rad)
+        step_east = speed * TICK_SECONDS * math.sin(rad)
         self._latitude += step_north / M_PER_DEG_LAT
         self._longitude += step_east / _m_per_deg_lon(self._latitude)
         return True
@@ -320,7 +436,7 @@ class Simulator:
 
     def _submodels(self) -> dict:
         """Submodels shared by UAV_STATE and UAV_TELEMETRY."""
-        speed = CRUISE_SPEED_MPS if self._moving else 0.0
+        speed = self._speed_mps if self._moving else 0.0
         rad = math.radians(self._heading)
         return {
             "position": {
@@ -456,6 +572,89 @@ class Simulator:
         }
         self._publish(f"uav/{DEVICE_ID}/telemetry", message)
 
+    def _publish_media(self, media_type: str) -> str:
+        """Publish one UAV_MEDIA on uav/{deviceId}/media; returns the mediaId."""
+        self._sequence += 1
+        media_id = f"MEDIA-{uuid.uuid4().hex[:8]}"
+        now = _utc_now_iso()
+        if media_type == "THERMAL_IMAGE":
+            url = f"s3://forest-fire/raw/thermal/{uuid.uuid4().hex[:8]}.png"
+            media_format = "PNG"
+        else:
+            url = f"s3://forest-fire/raw/rgb/{uuid.uuid4().hex[:8]}.jpg"
+            media_format = "JPEG"
+        media = {
+            "mediaId": media_id,
+            "type": media_type,
+            "url": url,
+            "width": 3840,
+            "height": 2160,
+            "format": media_format,
+            "size": 3852132,
+            "capturedAt": now,
+            "position": {
+                "latitude": round(self._latitude, 6),
+                "longitude": round(self._longitude, 6),
+                "altitude": 122.4,
+            },
+            "camera": {
+                "type": "RGB",
+                "fovHorizontal": 72,
+                "fovVertical": 44,
+                "zoom": 5,
+            },
+            "gimbal": {
+                "pitch": -35,
+                "yaw": 120,
+            },
+        }
+        if media_type == "THERMAL_IMAGE":
+            media["thermal"] = {
+                "minTemperature": 28.2,
+                "maxTemperature": 87.4,
+                "meanTemperature": 34.6,
+                "unit": "CELSIUS",
+            }
+        message = {
+            "schemaVersion": "1.0",
+            "messageId": f"MEDIA-MSG-{uuid.uuid4().hex[:8]}",
+            "messageType": "UAV_MEDIA",
+            "deviceId": DEVICE_ID,
+            "timestamp": now,
+            "source": "MOCK",
+            "sequence": self._sequence,
+            "media": media,
+        }
+        self._publish(f"uav/{DEVICE_ID}/media", message)
+        self._media_count += 1
+        log.info("UAV_MEDIA published: mediaId=%s type=%s url=%s", media_id, media_type, url)
+        return media_id
+
+    def _publish_fire_scenario_event(self, fire_lat: float, fire_lon: float) -> None:
+        """Publish the MISSION_STARTED UAV_EVENT announcing the fire scenario."""
+        self._sequence += 1
+        message = {
+            "schemaVersion": "1.0",
+            "messageId": f"EVENT-MSG-{uuid.uuid4().hex[:8]}",
+            "messageType": "UAV_EVENT",
+            "deviceId": DEVICE_ID,
+            "timestamp": _utc_now_iso(),
+            "source": "MOCK",
+            "sequence": self._sequence,
+            "event": {
+                "eventId": f"EVENT-{uuid.uuid4().hex[:8]}",
+                "eventType": "MISSION_STARTED",
+                "severity": "INFO",
+                "data": {
+                    "scenarioType": "FIRE",
+                    "latitude": fire_lat,
+                    "longitude": fire_lon,
+                },
+            },
+        }
+        self._publish(f"uav/{DEVICE_ID}/event", message)
+        log.info("UAV_EVENT published: MISSION_STARTED (fire scenario at %.6f, %.6f)", fire_lat, fire_lon)
+
     def _publish(self, topic: str, message: dict) -> None:
         if self._client is None:
             log.warning("MQTT client not ready; dropped message on %s", topic)
@@ -485,5 +684,26 @@ class Simulator:
                 "armed": self._armed,
             },
             "target": self._target,
+            "fireScenario": {
+                "active": self._fire_scenario["active"],
+                "latitude": (
+                    round(self._fire_scenario["latitude"], 6)
+                    if self._fire_scenario["latitude"] is not None else None
+                ),
+                "longitude": (
+                    round(self._fire_scenario["longitude"], 6)
+                    if self._fire_scenario["longitude"] is not None else None
+                ),
+                "capturing": self._fire_scenario["capturing"],
+            },
             "sequence": self._sequence,
         }
+
+    def _nearest_waypoint_index(self) -> int:
+        """Index of the wayline corner closest to the current position."""
+        return min(
+            range(len(self._waypoints)),
+            key=lambda index: _distance_m(
+                self._latitude, self._longitude, self._waypoints[index][0], self._waypoints[index][1]
+            ),
+        )

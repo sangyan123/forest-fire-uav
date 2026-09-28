@@ -26,6 +26,8 @@
 
 | 2026-09-28 | Phase 0 验收通过 | DEV五中间件全部UP（postgis16-3.4/redis7/bitnami-kafka3.7/mosquitto2/minio，postgres/redis/minio healthy）；数据库首次初始化自动执行migration：37表（34项目表+PostGIS系统表）、PostGIS 3.4.3、sys_permission 11条种子、fire_point.location_method+geometry列落位；Kafka started。备注：Bitnami命名空间被主流镜像站限流（多个加速器denied，最终拉取成功）；redis复用本地缓存。Phase 0 关账，Gate 17项剩4项（DEMO环境/Monitoring基础随Phase 1/9B落地） |
 
+| 2026-09-28 | D1：Phase 3 火情业务闭环落地（排期提前一天完成） | backend新增26文件（media/fire/mission/dispatch四包，10端点，7表实体@Column逐字对齐+hibernate-spatial，火情去重100m/120s两层筛选实测28检测合并1事件）；ai-service升级mock provider（detection/localization/verification/thermal/segmentation/tracking，AI_PROVIDER双轨）；gateway新增uav/+/media订阅转发；mock-uav新增火情场景（fire/start→15m/s转场→到位每2s回传媒体4RGB+1THERMAL循环、CAPTURE命令复拍、fire/stop恢复巡航，媒体消息经官方uav-media.schema.json校验）；frontend火情演示界面（注入主按钮/火点脉冲marker按8态着色/事件卡/核验派单流转/2s列表轮询，npm build通过）；**D1端到端验收通过**：注入→转场~50s→自动发现INC-20260928-0001(SUSPECTED,0.93)→核验CONFIRMED(0.904精确命中冻结权重公式)→media_file 35/fire_detection 28/fire_point 28/fire_incident 1/fire_verification 1全落位 |
+
 ------
 
 ## 二、未决 Issue（按基线第71章流程登记）

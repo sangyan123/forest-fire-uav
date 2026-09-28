@@ -19,8 +19,9 @@ public class MqttConfig {
     @Bean
     public GatewayMqttCallback gatewayMqttCallback(
             com.forestfire.uav.gateway.service.TelemetryIngestService telemetryIngestService,
+            com.forestfire.uav.gateway.service.MediaIngestService mediaIngestService,
             com.forestfire.uav.gateway.service.CommandResultService commandResultService) {
-        return new GatewayMqttCallback(telemetryIngestService, commandResultService);
+        return new GatewayMqttCallback(telemetryIngestService, mediaIngestService, commandResultService);
     }
 
     @Bean

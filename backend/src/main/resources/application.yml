@@ -40,6 +40,10 @@ gateway:
   # UAV Gateway 下发地址，容器环境用 GATEWAY_URL 覆盖
   url: ${GATEWAY_URL:http://uav-gateway:9000}
 
+ai-service:
+  # AI 算法服务（F01检测/F03定位/F04核验，mock provider），容器环境用 AI_SERVICE_URL 覆盖
+  url: ${AI_SERVICE_URL:http://ai-service:8000}
+
 management:
   endpoints:
     web:
