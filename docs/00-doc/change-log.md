@@ -30,6 +30,8 @@
 
 | 2026-09-28 | D2：Phase 4 收尾——误报演示线与状态流转打磨 | mock-uav 场景body增加verdict(CONFIRMED/FALSE_ALARM)，媒体内嵌metadata.scenarioType提示（21项断言，含schema校验）；backend media-ingest解析提示落incident.extra，核验时body无evidence则按场景派生（FIRE→0.9/0.92/0.88/0.9，FALSE_ALARM→0.30/0.22/0.40/0.30，阈值判定仍交AI Service），body显式传证据优先（D1行为保留）；frontend 顶栏拆双按钮（🔥火情/⚠️误报）、误报徽标、核验toast三分支文案、marker状态变化闪烁动画1.2s、活跃态优先排序、事件卡状态时间线（会话内记录）；**D2端到端验收**：火情线CONFIRMED(0.904)与误报线FALSE_ALARM(0.287)双线实测通过，两个事件并存在地图（INC-0001 FIRE/CONFIRMED、INC-0002 FALSE_ALARM/FALSE_ALARM），前端200 |
 
+| 2026-09-28 | D3：火场分析可视化（F05 扩散多边形 + F06 趋势面板） | ai-service 分割mock支持growthStep（150m→240m→330m每轮+90m，面积πr²）；backend新增7文件（FirePolygon/FireTrack实体+FireAnalysisService+GeoUtils扩展，3端点：POST analysis仅CONFIRMED/TRACKING放行、GET polygons升序GeoJSON、GET tracking最新趋势；fire_polygon.polygon按DDL实际为MultiPolygon写入，radiusMeters由面积派生）；frontend 火场分析按钮+扩散年轮叠加（透明度梯度0.08起每代+0.08最新0.32红描边）+poly-new扩散动画+趋势面板（趋势/方向罗盘/速度/面积增长率/轮次），40条单测+24步链路PASS；**D3端到端验收**：CONFIRMED事件两轮分析半径150→240m面积70686→180956m²、polygons两条升序、tracking EXPANDING/63.2°/1.8m/s/0.16、前端bundle含D3代码 |
+
 ------
 
 ## 二、未决 Issue（按基线第71章流程登记）

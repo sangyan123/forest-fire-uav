@@ -115,13 +115,18 @@ def thermal_anomaly(req: dict):
 
 @app.post("/ai/v1/segmentation")
 def segmentation(req: dict):
-    """F05 火场分割（mock）：以火点为中心 ≈150m 半径示例多边形（D4 用）。"""
+    """F05 火场分割（mock）：以火点为中心的多边形。
+    growthStep（可选，默认0）控制火场轮次半径：≈150m → 240m → 330m…（每轮+90m），
+    供后端多次火场分析叠加出"扩散"效果；面积按 πr² 计。"""
     if PROVIDER == "real":
         return _real_pending("segmentation")
     center = req.get("center") or {}
     lat = float(center.get("latitude", 30.12))
     lon = float(center.get("longitude", 114.12))
-    r = 0.00135
+    growth_step = int(req.get("growthStep", 0) or 0)
+    if growth_step < 0:
+        growth_step = 0
+    r = 0.00135 + 0.00081 * growth_step
     ring = [
         [round(lat + r, 6), round(lon, 6)],
         [round(lat + r * 0.6, 6), round(lon + r, 6)],
@@ -131,12 +136,17 @@ def segmentation(req: dict):
         [round(lat + r * 0.7, 6), round(lon - r * 0.7, 6)],
         [round(lat + r, 6), round(lon, 6)],
     ]
+    import math
+    radius_m = round(r * 111320.0)
+    area = round(math.pi * radius_m * radius_m)
     return _wrap({
         "taskId": req.get("taskId"),
         "status": "SUCCEEDED",
         "provider": "mock",
         "polygon": ring,
-        "areaSquareMeters": 70686,
+        "radiusMeters": radius_m,
+        "areaSquareMeters": area,
+        "growthStep": growth_step,
     })
 
 

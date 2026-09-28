@@ -100,6 +100,7 @@ public final class FireViews {
             Map<String, Object> extra,
             Instant createdAt,
             Instant updatedAt,
+            Integer polygonsCount,
             List<PointView> firePoints,
             List<DetectionView> detections,
             VerificationView latestVerification

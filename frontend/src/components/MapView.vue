@@ -2,16 +2,31 @@
 import * as L from 'leaflet'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
+  canAnalyze,
+  compassText,
   fireStatusColor,
   fireStatusPulse,
+  formatAreaText,
+  formatGrowthRate,
   formatCoords,
   isFalseAlarmDemo,
   nextFireStatuses,
+  num1,
+  polygonFillOpacity,
   relTimeText,
   zhDecision,
   zhFireStatus,
+  zhTrend,
 } from '../fire'
-import type { FireIncident, GotoPayload, StatusPoint, UavState, VerificationResult } from '../types'
+import type {
+  FireAnalysis,
+  FireIncident,
+  FirePolygonShape,
+  GotoPayload,
+  StatusPoint,
+  UavState,
+  VerificationResult,
+} from '../types'
 
 const props = defineProps<{
   state: UavState | null
@@ -25,9 +40,17 @@ const props = defineProps<{
   /** 已派单事件（incidentId -> missionId） */
   dispatched: Record<string, string>
   /** 当前进行中的卡片动作 */
-  busy: { incidentId: string; action: 'verify' | 'dispatch' } | null
+  busy: { incidentId: string; action: 'verify' | 'dispatch' | 'analyze' } | null
   /** 状态时间线（incidentId -> 状态变化序列） */
   timelines: Record<string, StatusPoint[]>
+  /** 选中事件的多边形历史（升序，扩散年轮） */
+  polygons: FirePolygonShape[]
+  /** 选中事件的最新分析（趋势面板） */
+  analysis: FireAnalysis | null
+  /** 每次分析成功自增，触发新多边形扩散动画 */
+  analysisPulse: number
+  /** 已完成分析轮次（incidentId -> 轮次） */
+  analysisRounds: Record<string, number>
 }>()
 
 const emit = defineEmits<{
@@ -35,6 +58,7 @@ const emit = defineEmits<{
   (e: 'select-incident', id: string): void
   (e: 'verify', id: string): void
   (e: 'dispatch', id: string): void
+  (e: 'analyze', id: string): void
   (e: 'status-change', id: string, status: string): void
   (e: 'close-card'): void
 }>()
@@ -96,10 +120,34 @@ const cardTimelineLocalOnly = computed(
   () => cardTimeline.value.length > 0 && cardTimeline.value.every((p) => p.source === 'local'),
 )
 
+/* ---------------- 火场分析（卡片） ---------------- */
+
+const cardAnalysis = computed(() => (cardIncident.value ? props.analysis : null))
+const cardCanAnalyze = computed(() => canAnalyze(cardStatus.value))
+const cardBusyAnalyze = computed(
+  () => props.busy?.action === 'analyze' && props.busy.incidentId === openCardId.value,
+)
+const cardRound = computed(() => {
+  const inc = cardIncident.value
+  if (!inc) return 0
+  return props.analysis?.growthStep ?? props.analysisRounds[inc.id] ?? 0
+})
+const cardLatestShape = computed<FirePolygonShape | null>(() => {
+  if (props.analysis?.polygon) return props.analysis.polygon
+  return props.polygons.length > 0 ? props.polygons[props.polygons.length - 1] : null
+})
+const analysisHint = computed(() => {
+  if (cardCanAnalyze.value) return ''
+  if (cardStatus.value === 'FALSE_ALARM') return '误报事件无需分析'
+  if (cardStatus.value === 'CLOSED' || cardStatus.value === 'RESOLVED') return '事件已结束'
+  return '确认后可分析'
+})
+
 let map: L.Map | null = null
 let marker: L.Marker | null = null
 let lastHeading = 0
 const fireMarkers = new Map<string, L.Marker>()
+let polygonLayer: L.LayerGroup | null = null
 
 function uavIcon(heading: number): L.DivIcon {
   const deg = ((heading % 360) + 360) % 360
@@ -267,6 +315,54 @@ watch(
   },
 )
 
+/* ---------------- 火场多边形（扩散年轮） ---------------- */
+
+/** 全量重绘：越早的越淡，最新一代红描边；切换事件/更新历史时调用（自动清除旧多边形） */
+function redrawPolygons(): void {
+  if (!polygonLayer) return
+  polygonLayer.clearLayers()
+  const total = props.polygons.length
+  props.polygons.forEach((shape, i) => {
+    if (!polygonLayer) return
+    const isLast = i === total - 1
+    const poly = L.polygon(shape.points as L.LatLngExpression[], {
+      color: '#f43f5e',
+      weight: isLast ? 2 : 1,
+      opacity: isLast ? 0.9 : 0.3,
+      fillColor: '#f43f5e',
+      fillOpacity: polygonFillOpacity(i, total),
+      smoothFactor: 1,
+    })
+    const round = shape.step ?? i + 1
+    const label =
+      `第 ${round} 轮` +
+      (shape.areaSquareMeters !== null ? ` · ${formatAreaText(shape.areaSquareMeters)}` : '')
+    poly.bindTooltip(label, { sticky: true, direction: 'top' })
+    poly.addTo(polygonLayer)
+  })
+}
+
+watch([() => props.selectedId, () => props.polygons], () => {
+  redrawPolygons()
+})
+
+/** 分析成功后：最新一代多边形播放一次扩散动画（渐入+轻微缩放，约 1s） */
+watch(
+  () => props.analysisPulse,
+  () => {
+    window.setTimeout(() => {
+      const layers = polygonLayer?.getLayers() ?? []
+      const last = layers[layers.length - 1] as L.Path | undefined
+      const el = last?.getElement()
+      if (!el) return
+      el.classList.remove('poly-new')
+      void el.getBoundingClientRect() // SVG 无 offsetWidth，用 getBoundingClientRect 强制 reflow
+      el.classList.add('poly-new')
+      window.setTimeout(() => el.classList.remove('poly-new'), 1400)
+    }, 60)
+  },
+)
+
 function onMapClick(e: L.LeafletMouseEvent): void {
   if (!map) return
   const c = clampPoint(e.containerPoint, 236, 236)
@@ -342,6 +438,8 @@ onMounted(() => {
   map.on('dragstart', () => {
     follow.value = false
   })
+  polygonLayer = L.layerGroup().addTo(map)
+  redrawPolygons()
   syncFireMarkers()
 })
 
@@ -420,6 +518,22 @@ onUnmounted(() => {
           {{ cardDispatched ? '已派单' : cardBusyDispatch ? '派单中…' : '派单核验' }}
         </button>
       </div>
+      <div class="ic-analysis-row">
+        <button
+          class="btn ic-btn ic-analyze-btn"
+          :disabled="!cardCanAnalyze || cardBusyAnalyze"
+          @click="emit('analyze', cardIncident.id)"
+        >
+          {{
+            cardBusyAnalyze
+              ? '分析中…'
+              : cardRound > 0
+                ? `🔥 火场分析 · 第 ${cardRound} 轮`
+                : '🔥 火场分析'
+          }}
+        </button>
+        <span v-if="analysisHint" class="ic-analysis-hint">{{ analysisHint }}</span>
+      </div>
       <div class="ic-status-row">
         <select v-model="statusPick" class="ic-select" :disabled="cardNexts.length === 0" @change="onStatusSelect">
           <option value="" disabled>
@@ -444,6 +558,42 @@ onUnmounted(() => {
           >
             {{ zhFireStatus(p.status) }}
           </span>
+        </div>
+      </div>
+
+      <!-- 火场趋势面板（F06） -->
+      <div v-if="cardAnalysis || cardLatestShape" class="ic-trend">
+        <div class="ic-tl-head">
+          火场趋势
+          <small v-if="cardRound > 0">· 第 {{ cardRound }} 轮分析</small>
+        </div>
+        <div class="kv">
+          <span>趋势</span>
+          <b>
+            <span class="trend-chip" :class="`trend-${props.analysis?.tracking?.trend ?? 'OTHER'}`">
+              {{ zhTrend(props.analysis?.tracking?.trend ?? null) }}
+            </span>
+          </b>
+        </div>
+        <div class="kv">
+          <span>蔓延方向</span>
+          <b>{{ compassText(props.analysis?.tracking?.direction ?? null) }}</b>
+        </div>
+        <div class="kv">
+          <span>蔓延速度</span>
+          <b>{{ num1(props.analysis?.tracking?.speed ?? null) }} m/s</b>
+        </div>
+        <div class="kv">
+          <span>面积增长率</span>
+          <b>{{ formatGrowthRate(props.analysis?.tracking?.areaGrowthRate ?? null) }} %/轮</b>
+        </div>
+        <div class="kv">
+          <span>最新面积</span>
+          <b>{{ formatAreaText(cardLatestShape?.areaSquareMeters ?? null) }}</b>
+        </div>
+        <div class="kv">
+          <span>火场半径</span>
+          <b>{{ cardLatestShape?.radiusMeters !== null && cardLatestShape?.radiusMeters !== undefined ? `${Math.round(cardLatestShape.radiusMeters)} m` : '—' }}</b>
         </div>
       </div>
     </div>

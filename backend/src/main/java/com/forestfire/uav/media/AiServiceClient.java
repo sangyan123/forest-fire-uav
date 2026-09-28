@@ -48,6 +48,15 @@ public class AiServiceClient {
     public record VerificationResult(String decision, Double confidence, Map<String, Double> evidence) {
     }
 
+    /** F05 分割结果：ring 为 [lat,lon] 闭合环（07号第24章扩展：growthStep 轮次半径 150m+90m/轮） */
+    public record SegmentationResult(List<double[]> ring, Double radiusMeters,
+                                     Double areaSquareMeters, Integer growthStep) {
+    }
+
+    /** F06 跟踪结果（07号第25章 data） */
+    public record TrackingResult(Double direction, Double speed, Double areaGrowthRate, String trend) {
+    }
+
     /** F01 火情检测：入参 {taskId, mediaId}，出 data.detections[] */
     public List<DetectionItem> detect(UUID taskId, UUID mediaId) {
         Map<String, Object> body = new HashMap<>();
@@ -92,6 +101,42 @@ public class AiServiceClient {
             }
         });
         return new VerificationResult(textOrNull(data, "decision"), doubleOrNull(data, "confidence"), ev);
+    }
+
+    /** F05 火场分割：入参 {taskId, incidentId, center:{latitude,longitude}, growthStep}，
+     * 出 data{polygon:[[lat,lon]...], radiusMeters, areaSquareMeters, growthStep} */
+    public SegmentationResult segment(UUID taskId, String incidentId,
+                                      double latitude, double longitude, int growthStep) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("taskId", taskId.toString());
+        body.put("incidentId", incidentId);
+        body.put("center", Map.of("latitude", latitude, "longitude", longitude));
+        body.put("growthStep", growthStep);
+        JsonNode data = postAndUnwrap("/ai/v1/segmentation", body);
+        List<double[]> ring = new ArrayList<>();
+        for (JsonNode p : data.path("polygon")) {
+            if (p.isArray() && p.size() >= 2 && p.get(0).isNumber() && p.get(1).isNumber()) {
+                ring.add(new double[]{p.get(0).asDouble(), p.get(1).asDouble()});
+            }
+        }
+        Integer step = data.path("growthStep").isInt() ? data.path("growthStep").asInt() : null;
+        return new SegmentationResult(ring,
+                doubleOrNull(data, "radiusMeters"),
+                doubleOrNull(data, "areaSquareMeters"),
+                step);
+    }
+
+    /** F06 火势跟踪：入参 {taskId, incidentId}，出 data{direction, speed, areaGrowthRate, trend} */
+    public TrackingResult track(UUID taskId, String incidentId) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("taskId", taskId.toString());
+        body.put("incidentId", incidentId);
+        JsonNode data = postAndUnwrap("/ai/v1/tracking", body);
+        return new TrackingResult(
+                doubleOrNull(data, "direction"),
+                doubleOrNull(data, "speed"),
+                doubleOrNull(data, "areaGrowthRate"),
+                textOrNull(data, "trend"));
     }
 
     // ---------------- 内部工具 ----------------

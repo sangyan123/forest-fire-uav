@@ -103,6 +103,7 @@ public class FireIncidentService {
     private final FirePointRepository pointRepository;
     private final FireDetectionRepository detectionRepository;
     private final FireVerificationRepository verificationRepository;
+    private final FirePolygonRepository polygonRepository;
     private final UavDeviceRepository deviceRepository;
     private final AiServiceClient aiServiceClient;
 
@@ -110,12 +111,14 @@ public class FireIncidentService {
                                FirePointRepository pointRepository,
                                FireDetectionRepository detectionRepository,
                                FireVerificationRepository verificationRepository,
+                               FirePolygonRepository polygonRepository,
                                UavDeviceRepository deviceRepository,
                                AiServiceClient aiServiceClient) {
         this.incidentRepository = incidentRepository;
         this.pointRepository = pointRepository;
         this.detectionRepository = detectionRepository;
         this.verificationRepository = verificationRepository;
+        this.polygonRepository = polygonRepository;
         this.deviceRepository = deviceRepository;
         this.aiServiceClient = aiServiceClient;
     }
@@ -271,6 +274,7 @@ public class FireIncidentService {
                 incident.getFirstDetectedAt(), incident.getConfirmedAt(), incident.getResolvedAt(),
                 incident.getVerificationStatus(), incident.getFalseAlarm(), incident.getDescription(),
                 incident.getExtra(), incident.getCreatedAt(), incident.getUpdatedAt(),
+                (int) polygonRepository.countByIncidentId(incident.getId()),
                 points, detections, latest);
     }
 

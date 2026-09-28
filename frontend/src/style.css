@@ -657,6 +657,51 @@ body {
   }
 }
 
+/* ---------- 火场多边形（扩散年轮） ---------- */
+/* 新一代多边形扩散动画：透明度渐入 + 轻微缩放，约 1s，不常驻 */
+.poly-new {
+  animation: poly-grow 1s ease-out 1;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes poly-grow {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 多边形 tooltip 暗色化 */
+.leaflet-tooltip {
+  border: 1px solid var(--line-soft);
+  background: rgba(12, 21, 38, 0.95);
+  color: var(--text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  font-size: 11px;
+}
+
+.leaflet-tooltip-top::before {
+  border-top-color: rgba(12, 21, 38, 0.95);
+}
+
+.leaflet-tooltip-bottom::before {
+  border-bottom-color: rgba(12, 21, 38, 0.95);
+}
+
+.leaflet-tooltip-left::before {
+  border-left-color: rgba(12, 21, 38, 0.95);
+}
+
+.leaflet-tooltip-right::before {
+  border-right-color: rgba(12, 21, 38, 0.95);
+}
+
 /* 状态变化时的一次性闪烁放大（1.2s，动画结束还原，不常驻） */
 .fire-marker.fire-flash {
   animation: fire-flash 1.2s ease-out 1;
@@ -689,6 +734,8 @@ body {
   position: absolute;
   z-index: 1200;
   width: 266px;
+  max-height: min(76vh, 640px);
+  overflow-y: auto;
   padding: 12px 14px;
   border: 1px solid rgba(244, 63, 94, 0.55);
   border-radius: 10px;
@@ -697,6 +744,15 @@ body {
     0 8px 28px rgba(0, 0, 0, 0.5),
     0 0 14px rgba(244, 63, 94, 0.22);
   font-size: 12px;
+}
+
+.incident-card::-webkit-scrollbar {
+  width: 6px;
+}
+
+.incident-card::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: rgba(120, 160, 220, 0.3);
 }
 
 .ic-head {
@@ -833,6 +889,83 @@ body {
 
 .ic-status-row {
   margin-top: 8px;
+}
+
+/* 火场分析按钮行 */
+.ic-analysis-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ic-analyze-btn {
+  flex: 1;
+  border-color: rgba(244, 63, 94, 0.45);
+  background: rgba(244, 63, 94, 0.1);
+  color: #fda4af;
+}
+
+.ic-analyze-btn:hover:not(:disabled) {
+  border-color: rgba(244, 63, 94, 0.8);
+  background: rgba(244, 63, 94, 0.2);
+}
+
+.ic-analysis-hint {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* 火场趋势面板 */
+.ic-trend {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line-soft);
+}
+
+.trend-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.trend-chip.trend-EXPANDING {
+  border-color: rgba(244, 63, 94, 0.55);
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+}
+
+.trend-chip.trend-GROWING,
+.trend-chip.trend-SPREADING,
+.trend-chip.trend-EXPANSION {
+  border-color: rgba(244, 63, 94, 0.55);
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+}
+
+.trend-chip.trend-STABLE,
+.trend-chip.trend-STEADY {
+  border-color: rgba(110, 231, 183, 0.45);
+  background: rgba(110, 231, 183, 0.08);
+  color: #6ee7b7;
+}
+
+.trend-chip.trend-SHRINKING,
+.trend-chip.trend-DECREASING {
+  border-color: rgba(147, 197, 253, 0.45);
+  background: rgba(147, 197, 253, 0.08);
+  color: #93c5fd;
+}
+
+.trend-chip.trend-CONTAINED {
+  border-color: rgba(148, 163, 184, 0.45);
+  background: rgba(148, 163, 184, 0.1);
+  color: #cbd5e1;
 }
 
 .ic-select {

@@ -110,6 +110,27 @@ export function postIncidentVerification(id: string): Promise<unknown> {
   })
 }
 
+/* ---------------- 火场分析（F05/F06） ---------------- */
+
+/** 触发一轮火场分析（仅 CONFIRMED/TRACKING 可用），返回新多边形与趋势 */
+export function postIncidentAnalysis(id: string): Promise<unknown> {
+  return request<unknown>(`/api/v1/fire/incidents/${encodeURIComponent(id)}/analysis`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({}),
+  })
+}
+
+/** 历史多边形（按轮次升序），用于绘制扩散年轮 */
+export function getIncidentPolygons(id: string): Promise<unknown> {
+  return request<unknown>(`/api/v1/fire/incidents/${encodeURIComponent(id)}/polygons`)
+}
+
+/** 最新蔓延趋势 */
+export function getIncidentTracking(id: string): Promise<unknown> {
+  return request<unknown>(`/api/v1/fire/incidents/${encodeURIComponent(id)}/tracking`)
+}
+
 /* ---------------- 任务派单 ---------------- */
 
 export interface MissionCreatePayload {

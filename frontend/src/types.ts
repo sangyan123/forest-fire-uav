@@ -77,6 +77,33 @@ export interface StatusPoint {
   source: 'backend' | 'local'
 }
 
+/** 一代火场多边形（宽松解析后的统一形状） */
+export interface FirePolygonShape {
+  /** [[lat, lng], ...] */
+  points: [number, number][]
+  radiusMeters: number | null
+  areaSquareMeters: number | null
+  timeMs: number | null
+  /** 分析轮次（第几代） */
+  step: number | null
+}
+
+/** 蔓延趋势（宽松解析） */
+export interface FireTracking {
+  direction: number | null
+  speed: number | null
+  areaGrowthRate: number | null
+  trend: string | null
+}
+
+/** POST /analysis 响应（宽松解析） */
+export interface FireAnalysis {
+  polygon: FirePolygonShape | null
+  tracking: FireTracking | null
+  growthStep: number | null
+  at: number
+}
+
 /** AI 核验结果（宽松解析自 POST /verification 响应） */
 export interface VerificationResult {
   decision: string | null

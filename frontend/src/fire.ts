@@ -4,7 +4,7 @@
  * 后端字段命名可能不统一（firePoint.latitude / latitude / incidentLatitude 等），
  * 所有取值都走 pickPath 宽松回退，保证演示时不因字段差异丢数据。
  */
-import type { FireIncident, StatusPoint, VerificationResult } from './types'
+import type { FireAnalysis, FireIncident, FirePolygonShape, StatusPoint, VerificationResult } from './types'
 
 /* ---------------- 状态标签与颜色 ---------------- */
 
@@ -440,4 +440,187 @@ export function appendTimelinePoint(
   const last = points[points.length - 1]
   if (last && last.status === status) return points
   return [...points, { status, at, source }]
+}
+
+/* ---------------- 火场分析：多边形 / 趋势（F05/F06） ---------------- */
+
+/** 解析多边形坐标点集合：[[lat,lng]] / [[lng,lat]]（启发式纠正）/ [{latitude,longitude}] */
+function parsePolygonPoints(v: unknown): [number, number][] {
+  const arr = Array.isArray(v) ? v : []
+  const pts: [number, number][] = []
+  for (const entry of arr) {
+    if (Array.isArray(entry) && entry.length >= 2) {
+      const a = toNum(entry[0])
+      const b = toNum(entry[1])
+      if (a === null || b === null) continue
+      // 经度绝对值通常大于纬度；按数值范围启发式纠正顺序
+      pts.push(Math.abs(a) > 90 ? [b, a] : [a, b])
+      continue
+    }
+    const rec = asRecord(entry)
+    if (!rec) continue
+    const lat = toNum(pickFirst(rec, 'latitude', 'lat'))
+    const lng = toNum(pickFirst(rec, 'longitude', 'lng', 'lon'))
+    if (lat !== null && lng !== null) pts.push([lat, lng])
+  }
+  return pts
+}
+
+/**
+ * 宽松解析单代多边形。兼容：
+ * - {polygon:{polygon:[[..]], radiusMeters, areaSquareMeters, createdAt}}
+ * - {coordinates:[[..]], radiusMeters, ...}
+ * - [[lat,lng],...]（纯坐标数组）
+ */
+export function parsePolygonShape(raw: unknown): FirePolygonShape | null {
+  let coordsRaw: unknown
+  let meta: Record<string, unknown> = {}
+  if (Array.isArray(raw)) {
+    coordsRaw = raw
+  } else {
+    const rec = asRecord(raw)
+    if (!rec) return null
+    meta = rec
+    const container = pickFirst(rec, 'polygon', 'geometry', 'shape', 'firePolygon', 'areaPolygon')
+    const containerRec = asRecord(container)
+    coordsRaw = Array.isArray(container)
+      ? container
+      : containerRec
+        ? pickFirst(containerRec, 'polygon', 'coordinates', 'coords', 'points', 'ring', 'boundary')
+        : pickFirst(rec, 'coordinates', 'coords', 'points', 'vertices')
+  }
+  const points = parsePolygonPoints(coordsRaw)
+  if (points.length < 3) return null
+  return {
+    points,
+    radiusMeters: toNum(pickFirst(meta, 'radiusMeters', 'radius_m', 'radius')),
+    areaSquareMeters: toNum(pickFirst(meta, 'areaSquareMeters', 'areaMeters', 'areaSqM', 'area')),
+    timeMs: timeMsOf(meta),
+    step: toNum(pickFirst(meta, 'growthStep', 'generation', 'round', 'seq', 'step')),
+  }
+}
+
+/** 历史多边形（升序）。兼容数组直返或 {polygons/items/list/...} 包裹；无 step 时按序号补齐 */
+export function parsePolygonHistory(data: unknown): FirePolygonShape[] {
+  let arr: unknown[] | null = null
+  if (Array.isArray(data)) {
+    arr = data
+  } else {
+    const rec = asRecord(data)
+    if (rec) {
+      for (const key of ['polygons', 'items', 'list', 'content', 'records', 'history', 'generations']) {
+        const v = rec[key]
+        if (Array.isArray(v)) {
+          arr = v
+          break
+        }
+      }
+    }
+  }
+  if (!arr) return []
+  const out: FirePolygonShape[] = []
+  arr.forEach((entry, idx) => {
+    const shape = parsePolygonShape(entry)
+    if (shape) {
+      if (shape.step === null) shape.step = idx + 1
+      out.push(shape)
+    }
+  })
+  return out
+}
+
+/** POST /analysis 响应宽松解析 */
+export function parseAnalysis(data: unknown): FireAnalysis {
+  const rec = asRecord(data)
+  const at = Date.now()
+  if (!rec) return { polygon: null, tracking: null, growthStep: null, at }
+  let polygon = parsePolygonShape(rec.polygon)
+  const growthStep = toNum(pickFirst(rec, 'growthStep', 'generation', 'round', 'step'))
+  if (polygon !== null && polygon.step === null) {
+    polygon = { ...polygon, step: growthStep }
+  }
+  // tracking 可能是子对象，也可能平铺在根上
+  const trRaw = asRecord(rec.tracking) ?? rec
+  const direction = toNum(pickFirst(trRaw, 'direction', 'spreadDirection', 'directionDeg', 'bearing'))
+  const speed = toNum(pickFirst(trRaw, 'speed', 'spreadSpeed', 'speedMps'))
+  const areaGrowthRate = toNum(
+    pickFirst(trRaw, 'areaGrowthRate', 'areaGrowth', 'growthRate', 'areaGrowthRatePercent'),
+  )
+  const trendRaw = pickFirst(trRaw, 'trend', 'spreadTrend', 'tendency')
+  const hasTracking =
+    direction !== null || speed !== null || areaGrowthRate !== null || trendRaw !== undefined
+  const tracking = hasTracking
+    ? {
+        direction,
+        speed,
+        areaGrowthRate,
+        trend: trendRaw === undefined ? null : String(trendRaw).trim().toUpperCase(),
+      }
+    : null
+  return { polygon, tracking, growthStep, at }
+}
+
+/* ---------------- 火场分析展示辅助 ---------------- */
+
+const TREND_ZH: Record<string, string> = {
+  EXPANDING: '扩散中',
+  EXPANSION: '扩散中',
+  GROWING: '扩散中',
+  SPREADING: '扩散中',
+  STABLE: '趋于稳定',
+  STEADY: '趋于稳定',
+  SHRINKING: '收缩中',
+  DECREASING: '收缩中',
+  CONTAINED: '已控制',
+}
+
+export function zhTrend(t?: string | null): string {
+  if (!t) return '—'
+  return TREND_ZH[t.toUpperCase()] ?? t
+}
+
+const COMPASS = ['北', '东北', '东', '东南', '南', '西南', '西', '西北']
+
+/** 蔓延方向：度数 + 罗盘方位 */
+export function compassText(deg: number | null | undefined): string {
+  const n = toNum(deg)
+  if (n === null) return '—'
+  const normalized = ((n % 360) + 360) % 360
+  const idx = Math.round(normalized / 45) % 8
+  return `${Math.round(normalized)}° · ${COMPASS[idx]}`
+}
+
+/** 面积展示：m²，≥1 公顷时附公顷 */
+export function formatAreaText(area: number | null | undefined): string {
+  const n = toNum(area)
+  if (n === null) return '—'
+  const a = Math.round(n)
+  const base = `${a.toLocaleString('zh-CN')} m²`
+  return a >= 10000 ? `${base}（${(a / 10000).toFixed(2)} 公顷）` : base
+}
+
+/** 数值展示：一位小数，空值 — */
+export function num1(v: number | null | undefined): string {
+  const n = toNum(v)
+  return n === null ? '—' : n.toFixed(1)
+}
+
+/** 面积增长率展示：0-1 小数视为比例 ×100，其余按百分数原样 */
+export function formatGrowthRate(v: number | null | undefined): string {
+  const n = toNum(v)
+  if (n === null) return '—'
+  const scaled = n > 0 && n <= 1 ? n * 100 : n
+  return scaled.toFixed(1)
+}
+
+/** 仅 CONFIRMED/TRACKING 可做火场分析 */
+export function canAnalyze(status?: string | null): boolean {
+  const s = (status ?? '').toUpperCase()
+  return s === 'CONFIRMED' || s === 'TRACKING'
+}
+
+/** 扩散年轮填充透明度：第 i 代（0 基），最新一代 0.32，其余 0.08 起每代 +0.08（上限 0.24） */
+export function polygonFillOpacity(index: number, total: number): number {
+  if (index === total - 1) return 0.32
+  return Math.min(0.08 + index * 0.08, 0.24)
 }

@@ -7,19 +7,43 @@ import {
   createMission,
   getCommand,
   getFireIncidents,
+  getIncidentPolygons,
+  getIncidentTracking,
   getUavState,
   missionIdOf,
   patchIncidentStatus,
   postCommand,
+  postIncidentAnalysis,
   postIncidentVerification,
   startFireScenario,
   startMission,
   stopFireScenario,
 } from './api'
-import { parseIncidents, parseVerification, parseStatusHistory, appendTimelinePoint, sortIncidentsForDisplay, zhDecision, zhFireStatus } from './fire'
+import {
+  appendTimelinePoint,
+  canAnalyze,
+  parseAnalysis,
+  parseIncidents,
+  parsePolygonHistory,
+  parseStatusHistory,
+  parseVerification,
+  sortIncidentsForDisplay,
+  zhDecision,
+  zhFireStatus,
+} from './fire'
 import { TERMINAL_CMD_STATUSES, zhCmdStatus, zhCmdType } from './labels'
 import { pushToast } from './toast'
-import type { CommandType, FireIncident, GotoPayload, StatusPoint, TrackedCommand, UavState, VerificationResult } from './types'
+import type {
+  CommandType,
+  FireAnalysis,
+  FireIncident,
+  FirePolygonShape,
+  GotoPayload,
+  StatusPoint,
+  TrackedCommand,
+  UavState,
+  VerificationResult,
+} from './types'
 
 const DEVICE_ID = 'UAV-001'
 const STATE_POLL_MS = 1000
@@ -49,9 +73,16 @@ const focus = ref<{ id: string; seq: number } | null>(null)
 let focusSeq = 0
 const verifications = ref<Record<string, VerificationResult>>({})
 const dispatched = ref<Record<string, string>>({})
-const busy = ref<{ incidentId: string; action: 'verify' | 'dispatch' } | null>(null)
+const busy = ref<{ incidentId: string; action: 'verify' | 'dispatch' | 'analyze' } | null>(null)
 /** 状态时间线（事件 id -> 已知状态变化序列；后端无历史字段时为会话内记录） */
 const timelines = ref<Record<string, StatusPoint[]>>({})
+
+/* 火场分析（F05/F06）：仅作用于当前选中事件 */
+const polygons = ref<FirePolygonShape[]>([])
+const latestAnalysis = ref<FireAnalysis | null>(null)
+const analysisPulse = ref(0)
+const analysisRounds = ref<Record<string, number>>({})
+let polygonLoadToken = 0
 
 const knownIncidentIds = new Set<string>()
 
@@ -161,17 +192,55 @@ async function onStopScenario(): Promise<void> {
 
 /* ---------------- 事件卡片动作 ---------------- */
 
+/** 拉取选中事件的历史多边形（扩散年轮数据源）；后端未就绪时静默置空 */
+async function loadPolygons(id: string): Promise<void> {
+  const token = ++polygonLoadToken
+  try {
+    const raw = await getIncidentPolygons(id)
+    if (token !== polygonLoadToken) return
+    polygons.value = parsePolygonHistory(raw)
+  } catch {
+    if (token !== polygonLoadToken) return
+    polygons.value = []
+  }
+}
+
+/** 拉取最新趋势，作为趋势面板种子（后端未就绪时静默跳过） */
+async function refreshTracking(id: string): Promise<void> {
+  try {
+    const raw = await getIncidentTracking(id)
+    const parsed = parseAnalysis(raw)
+    if (parsed.tracking === null && parsed.growthStep === null) return
+    latestAnalysis.value = {
+      polygon: parsed.polygon ?? latestAnalysis.value?.polygon ?? null,
+      tracking: parsed.tracking ?? latestAnalysis.value?.tracking ?? null,
+      growthStep: parsed.growthStep ?? latestAnalysis.value?.growthStep ?? null,
+      at: Date.now(),
+    }
+  } catch {
+    // 趋势接口失败不影响卡片其余功能
+  }
+}
+
 function onSelectFromMap(id: string): void {
   selectedIncidentId.value = id
+  void loadPolygons(id)
+  void refreshTracking(id)
 }
 
 function onSelectFromList(id: string): void {
   selectedIncidentId.value = id
   focus.value = { id, seq: ++focusSeq }
+  void loadPolygons(id)
+  void refreshTracking(id)
 }
 
 function onCloseCard(): void {
   selectedIncidentId.value = null
+  // 切换/关闭事件时清除旧多边形与趋势
+  polygonLoadToken++
+  polygons.value = []
+  latestAnalysis.value = null
 }
 
 async function onVerify(id: string): Promise<void> {
@@ -228,6 +297,36 @@ async function onDispatch(id: string): Promise<void> {
     void pollIncidents()
   } catch (e) {
     pushToast('error', `派单核验失败：${e instanceof Error ? e.message : '未知错误'}`)
+  } finally {
+    busy.value = null
+  }
+}
+
+async function onAnalyze(id: string): Promise<void> {
+  if (busy.value) return
+  const inc = incidents.value.find((i) => i.id === id)
+  if (!inc) return
+  if (!canAnalyze(inc.status)) {
+    pushToast('info', '该事件尚未确认，确认后可进行火场分析')
+    return
+  }
+  busy.value = { incidentId: id, action: 'analyze' }
+  try {
+    const raw = await postIncidentAnalysis(id)
+    const a = parseAnalysis(raw)
+    const prevRound = analysisRounds.value[id] ?? 0
+    if (a.growthStep === null) a.growthStep = prevRound + 1
+    analysisRounds.value = { ...analysisRounds.value, [id]: a.growthStep }
+    if (a.polygon) polygons.value = [...polygons.value, a.polygon]
+    latestAnalysis.value = a
+    analysisPulse.value++ // 触发最新一代多边形扩散动画
+    const areaText =
+      a.polygon?.areaSquareMeters != null
+        ? `，面积约 ${Math.round(a.polygon.areaSquareMeters).toLocaleString('zh-CN')} m²`
+        : ''
+    pushToast('success', `火场分析完成：第 ${a.growthStep} 轮${areaText}`)
+  } catch (e) {
+    pushToast('error', `火场分析失败：${e instanceof Error ? e.message : '未知错误'}`)
   } finally {
     busy.value = null
   }
@@ -410,10 +509,15 @@ onUnmounted(() => {
         :dispatched="dispatched"
         :busy="busy"
         :timelines="timelines"
+        :polygons="polygons"
+        :analysis="latestAnalysis"
+        :analysis-pulse="analysisPulse"
+        :analysis-rounds="analysisRounds"
         @goto="onGoto"
         @select-incident="onSelectFromMap"
         @verify="onVerify"
         @dispatch="onDispatch"
+        @analyze="onAnalyze"
         @status-change="onStatusChange"
         @close-card="onCloseCard"
       />
