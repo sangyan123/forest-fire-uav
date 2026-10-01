@@ -268,6 +268,13 @@ class Simulator:
             "capturing": False,
             "verdict": verdict,
         }
+        # 新场景接管飞行：结算挂起的 GOTO 命令（否则永远卡在 EXECUTING，D6 彩排实测）
+        if self._pending_command_id is not None:
+            self._publish_result(self._pending_command_id, "CANCELLED",
+                                 {"reason": "SUPERSEDED_BY_FIRE_SCENARIO"})
+            self._pending_command_id = None
+        self._target = None
+        self._goto_started_at = None
         self._scenario_id = VERDICT_SCENARIO_ID[verdict]
         self._capture_tick = 0
         self._rgb_since_thermal = 0
@@ -351,6 +358,11 @@ class Simulator:
         self._comms_silence_seconds = seconds
         self._comms_silence_started_at = time.monotonic()
         self._scenario_id = SCENARIO_ID_COMMS_LOST
+        # 断联期间指令无法送达无人机：挂起的 GOTO 结算为 CANCELLED（避免僵尸 EXECUTING）
+        if self._pending_command_id is not None:
+            self._publish_result(self._pending_command_id, "CANCELLED",
+                                 {"reason": "COMMUNICATION_LOST"})
+            self._pending_command_id = None
         log.info("Scenario-06 started: COMMUNICATION_LOST published, MQTT silent for %ds", seconds)
 
     def _resume_comms_if_due(self) -> bool:
@@ -529,6 +541,10 @@ class Simulator:
             self._flight_mode = "AUTO_LAND"
             self._target = None
             self._pending_command_id = None
+            if self._fire_scenario["active"]:
+                # 降落即结束火情采集（否则降落状态的无人机不会再执行 fire tick，
+                # 场景残留会在下次起飞时把无人机拉回火点）
+                self.stop_fire_scenario()
             self._publish_result(command_id, "SUCCESS", {})
         elif command_type == "PAUSE":
             self._flight_status = "PAUSED"
@@ -574,9 +590,12 @@ class Simulator:
 
         self._moving = False
         if self._flight_status not in ("PAUSED", "LANDED"):
-            if self._fire_scenario["active"]:
-                self._tick_fire_scenario()
-            elif self._flight_mode in ("GOTO", "RETURN_HOME") and self._target is not None:
+            if (
+                self._flight_mode in ("GOTO", "RETURN_HOME")
+                and self._target is not None
+            ):
+                # GOTO/RETURN_HOME 优先于火情场景（D6彩排修正）：演示中途重定位/返航时
+                # 采集暂停，GOTO 到位后场景恢复（飞回火点继续采集）
                 arrived = not self._step_toward(self._target["latitude"], self._target["longitude"])
                 self._moving = not arrived
                 if arrived:
@@ -587,6 +606,12 @@ class Simulator:
                         self._publish_result(self._pending_command_id, "SUCCESS", {"executionTimeMs": elapsed_ms})
                         self._pending_command_id = None
                     self._goto_started_at = None
+                    self._target = None
+                    if self._fire_scenario["active"]:
+                        # GOTO 到位后：场景恢复（fire tick 将转场回火点继续采集）
+                        self._fire_scenario["capturing"] = False
+            elif self._fire_scenario["active"]:
+                self._tick_fire_scenario()
             elif self._flight_mode == "WAYLINE":
                 waypoint = self._waypoints[self._waypoint_index]
                 arrived = not self._step_toward(waypoint[0], waypoint[1])
