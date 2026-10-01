@@ -75,10 +75,14 @@ BATTERY_FLOOR = 5.0
 # Fire scenario: default fire point ~800 m north-east of Home.
 FIRE_DEFAULT_LAT = 30.1235
 FIRE_DEFAULT_LON = 114.1285
-# Scenario-04 误报线默认点：与火情线默认点相距约1.2km（> 火情去重半径100m），
-# 否则误报检测会被合并进火情事件、误报演示不产生新事件（D6彩排实测发现）
-FALSE_ALARM_DEFAULT_LAT = 30.1150
-FALSE_ALARM_DEFAULT_LON = 114.1360
+# 误报线专用默认点已被“预设点位轮换”取代（见 FIRE_PRESET_POINTS）：轮换保证连续两次
+# 注入的点位相距 >火情去重半径100m，误报检测不会被合并进火情事件（D6彩排实测发现）
+# 预设起火点：三者两两相距 800m 以上，均在离线瓦片覆盖区（30.08~30.18N, 114.08~114.18E）内
+FIRE_PRESET_POINTS = [
+    (30.1235, 114.1285),  # P1 Home 东北 ~800m
+    (30.1185, 114.1210),  # P2 Home 西南 ~700m
+    (30.1265, 114.1360),  # P3 Home 东北 ~1.7km
+]
 FIRE_TRANSIT_SPEED_MPS = 15.0  # demo pace; restored to CRUISE_SPEED_MPS on arrival
 FIRE_ARRIVAL_RADIUS_M = 10.0  # < 10 m -> arrived, capture starts
 MEDIA_CAPTURE_INTERVAL_TICKS = 2  # one UAV_MEDIA every 2 s (1 Hz tick)
@@ -198,6 +202,7 @@ class Simulator:
         }
         self._scenario_id = SCENARIO_ID_PATROL  # baseline ch.61 registry id
         self._capture_tick = 0
+        self._fire_preset_index = 0  # 起火点预设轮换指针（每次场景启动+1，取模复位）
         self._rgb_since_thermal = 0
         self._media_count = 0
 
@@ -251,16 +256,25 @@ class Simulator:
 
     def start_fire_scenario(self, latitude: float | None = None, longitude: float | None = None,
                             verdict: str = "CONFIRMED") -> None:
-        """Fly to the fire point (default north-east of Home) at 15 m/s and start fire capture on arrival.
+        """Fly to the fire point at 15 m/s and start fire capture on arrival.
 
         verdict "CONFIRMED" (default) or "FALSE_ALARM" selects the demo line; both behave
         identically except for media.metadata.scenarioType ("FIRE" vs "FALSE_ALARM").
+
+        Fire point: explicit latitude/longitude wins; with no coordinates the **preset points
+        rotate** (FIRE_PRESET_POINTS, one advance per start) so consecutive demos land at
+        different spots — a customer asking "why is the fire always there?" gets no reason to.
+        Rotation also keeps consecutive starts > 100 m (fire dedup radius) apart, so a
+        false-alarm line never merges into an open fire incident.
         """
         verdict = str(verdict).strip().upper() if verdict else "CONFIRMED"
         if verdict not in SCENARIO_VERDICTS:
             raise ValueError(f"verdict must be one of {SCENARIO_VERDICTS}, got: {verdict!r}")
-        fire_lat = float(latitude) if latitude is not None else FIRE_DEFAULT_LAT
-        fire_lon = float(longitude) if longitude is not None else FIRE_DEFAULT_LON
+        if latitude is None or longitude is None:
+            fire_lat, fire_lon = FIRE_PRESET_POINTS[self._fire_preset_index]
+            self._fire_preset_index = (self._fire_preset_index + 1) % len(FIRE_PRESET_POINTS)
+        else:
+            fire_lat, fire_lon = float(latitude), float(longitude)
         self._fire_scenario = {
             "active": True,
             "latitude": fire_lat,
