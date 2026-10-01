@@ -319,9 +319,14 @@ export function parseIncidents(data: unknown): FireIncident[] {
 
 /** POST /verification 响应宽松解析 decision / confidence */
 export function parseVerification(data: unknown): VerificationResult {
-  const raw = asRecord(data)
+  let raw = asRecord(data)
   const at = Date.now()
   if (!raw) return { decision: null, confidence: null, at }
+  // backend 核验响应字段名为 result（字符串结论）+ finalScore：
+  // 如 {result:"CONFIRMED", finalScore:0.904} —— 归一为 decision/confidence 再走通用解析
+  if (typeof raw.result === 'string' && raw.decision === undefined) {
+    raw = { ...raw, decision: raw.result, confidence: raw.finalScore ?? raw.confidence }
+  }
   // decision 可能直接在 data 上，也可能包在 result/verification/aiResult 里
   const decisionRaw = pickFirst(
     raw,
