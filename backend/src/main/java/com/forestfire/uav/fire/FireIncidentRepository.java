@@ -21,12 +21,15 @@ public interface FireIncidentRepository extends JpaRepository<FireIncidentEntity
     long countByIncidentNoStartingWith(String prefix);
 
     /**
-     * 火情去重（100m/120s）粗筛：未关闭（status 不在终态集合）、first_detected_at 在窗口内、
-     * 经纬度矩形圈选（±100m 对应经纬度增量），随后服务层 Haversine 精算 ≤100m。
+     * 火情去重（100m/120s）粗筛：未关闭（status 不在终态集合）、updated_at（事件最后活动时间，
+     * 每次检测合并都会刷新）在窗口内、经纬度矩形圈选（±100m 对应经纬度增量），
+     * 随后服务层 Haversine 精算 ≤100m。
+     * 注意用 updated_at 而非 first_detected_at：持续采集的同一火情，首次检测会早于 120s 窗口，
+     * 用 first_detected_at 会把同一火情重复拆成多个事件（D6 彩排实测踩过）。
      */
-    List<FireIncidentEntity> findByStatusNotInAndFirstDetectedAtAfterAndLatitudeBetweenAndLongitudeBetween(
+    List<FireIncidentEntity> findByStatusNotInAndUpdatedAtAfterAndLatitudeBetweenAndLongitudeBetween(
             Collection<String> status,
-            Instant firstDetectedAtAfter,
+            Instant updatedAtAfter,
             Double latitudeLowest, Double latitudeGreatest,
             Double longitudeLowest, Double longitudeGreatest);
 }

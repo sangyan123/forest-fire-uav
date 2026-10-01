@@ -125,7 +125,10 @@ services:
       SPRING_DATASOURCE_PASSWORD: forest_fire_dev
       GATEWAY_URL: http://uav-gateway:9000
     ports:
-      - "8080:8080"
+      # 宿主18080（8080被其他项目canteen_backend占用且其restart=always，不应擅停）；
+      # 容器内仍8080，容器网络内寻址不变。前端走相对路径经nginx同源代理，
+      # 演示页(:8081)不受影响；直连API/自测用18080。
+      - "18080:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -145,8 +148,7 @@ services:
     environment:
       MQTT_HOST: tcp://mqtt:1883
       BACKEND_URL: http://backend:8080
-    ports:
-      - "19000:9000"    # 宿主19000（9000与MinIO API冲突）；容器内仍9000
+    # 无宿主端口映射：纯内部桥接服务（backend经容器网络 backend:8080→gateway:9000 调用）
     depends_on:
       mqtt:
         condition: service_started
@@ -186,7 +188,11 @@ services:
     build: ../frontend
     container_name: forest-fire-frontend
     ports:
-      - "8081:80"
+      # 宿主8181（8081被其他项目canteen_frontend占用）；演示页新地址 http://localhost:8181
+      - "8181:80"
     depends_on:
+      # nginx 启动即解析上游域名，必须等 backend/mock-uav 先入网
+      #（否则 [emerg] host not found in upstream 直接退出——D6彩排实测踩过）
       - backend
+      - mock-uav
     networks: [forest-fire-net]

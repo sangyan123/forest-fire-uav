@@ -16,6 +16,8 @@ from .simulator import (
     DEFAULT_SILENCE_SECONDS,
     FAILURE_RECOVER_TYPE,
     FAILURE_TYPES,
+    FALSE_ALARM_DEFAULT_LAT,
+    FALSE_ALARM_DEFAULT_LON,
     MAX_SILENCE_SECONDS,
     Simulator,
 )
@@ -291,6 +293,10 @@ async def start_scenario_by_id(scenario_id: str, request: ScenarioStartRequest |
         return JSONResponse(status_code=400, content={"code": 40001, "message": "unknown scenarioId"})
     latitude = request.latitude if request is not None else None
     longitude = request.longitude if request is not None else None
+    if key == "scenario-04" and latitude is None and longitude is None:
+        # 误报线独立默认点，避免与火情线同点被去重合并（相距约1.2km > 100m）
+        latitude = FALSE_ALARM_DEFAULT_LAT
+        longitude = FALSE_ALARM_DEFAULT_LON
     simulator.start_fire_scenario(latitude=latitude, longitude=longitude, verdict=verdict)
     return _wrap({
         "scenarioId": key,

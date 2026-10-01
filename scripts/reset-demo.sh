@@ -22,5 +22,5 @@ UNION ALL SELECT 'uav_telemetry: ' || count(*) FROM uav_telemetry
 UNION ALL SELECT 'uav_device: ' || count(*) FROM uav_device;"
 
 echo ""
-echo "✅ 重置完成。等约 15 秒 mock-uav 重连 MQTT 后，打开 http://localhost:8081 开始演示。"
+echo "✅ 重置完成。等约 15 秒 mock-uav 重连 MQTT 后，打开 http://localhost:8181 开始演示。"
 echo "   （数据库数据卷未动，如需彻底重来用 docker compose down -v 后 up -d --build）"

@@ -58,7 +58,8 @@ bash scripts/reset-demo.sh                   # 重置演示数据+无人机满�
 docker compose ps                            # 九容器全Up；postgres/redis/minio 应 healthy
 ```
 
-- 页面 http://localhost:8081；后端 :8080；模拟器 :8002；AI :8000；MinIO :9001
+- 页面 http://localhost:8181；后端宿主18080（容器内8080，经前端nginx同源代理，演示页访问不受影响）；模拟器 :8002；AI :8000；MinIO :9001
+（注：本机8080/8081被其他项目占用，故改用8181/18080；uav-gateway无宿主端口，纯内部桥接）
 - 自动化校验：`node scripts/validate-uav-schemas.js`（协议 schema）、`npx js-yaml docs/00-doc/*.yaml`（机器来源）
 - 演示剧本：`docs/demo/客户演示讲稿.md`（五场景按钮）
 - git 纪律：`docs/00-doc/branch-policy.yaml`（main 禁直推、PR+Review+CI）

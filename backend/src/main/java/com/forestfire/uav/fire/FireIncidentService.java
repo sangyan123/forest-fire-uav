@@ -30,7 +30,7 @@ import java.util.UUID;
  * 火情事件服务：
  * <ol>
  *   <li>火情去重/事件登记（100m/120s，config/algorithm/fire-detection-v1.yaml dedup 段）：
- *       先按未关闭状态 + 120s 时间窗 + 经纬度矩形（±100m 对应经纬度增量）粗筛，
+ *       先按未关闭状态 + updated_at 120s 窗口（事件最后活动时间，持续采集持续合并）+ 经纬度矩形（±100m 对应经纬度增量）粗筛，
  *       再 Haversine 精算距离 ≤100m；命中则挂接最新火点并刷新 latest 字段，未命中则新建 incident；</li>
  *   <li>事件列表/详情；</li>
  *   <li>PATCH status — IncidentStatus 状态机校验（主线 SUSPECTED→VERIFYING→CONFIRMED→TRACKING→
@@ -132,10 +132,14 @@ public class FireIncidentService {
 
     /**
      * 火情去重（100m/120s）：为给定火点寻找可归属的未关闭事件。
-     * 粗筛（状态非终态 + first_detected_at 在 120s 窗口 + 经纬度矩形）后 Haversine 精算 ≤100m。
-     * 命中：更新 incident latest 相关字段（坐标/extra.latestConfidence/detectionCount）；
+     * 粗筛（状态非终态 + updated_at 在 120s 窗口 + 经纬度矩形）后 Haversine 精算 ≤100m。
+     * 命中：更新 incident latest 相关字段（坐标/extra.latestConfidence/detectionCount，刷新 updated_at）；
      * 未命中：新建 incident（status=SUSPECTED，level 按 confidence≥0.80→HIGH 否则 MEDIUM）。
      * 两种路径都回填 fire_point.incident_id。
+     *
+     * <p>时间窗用 updated_at（最后活动时间）而非 first_detected_at：持续采集的同一火情首次检测
+     * 可能早于 120s，用 first_detected_at 会把同一火情重复拆成多个事件（D6 彩排实测复现，
+     * 火情场景恢复采集后同坐标生成了第二个 SUSPECTED 事件）。</p>
      *
      * <p>D2 误报演示线：scenarioType（media.metadata.scenarioType，FIRE/FALSE_ALARM，缺省 FIRE）
      * 在创建与合并两条路径都写入 incident.extra.scenarioType（后到覆盖，演示线空间上分离，
@@ -155,7 +159,7 @@ public class FireIncidentService {
                 / (111_320.0 * Math.max(Math.cos(Math.toRadians(lat)), 0.01));
 
         List<FireIncidentEntity> candidates = incidentRepository
-                .findByStatusNotInAndFirstDetectedAtAfterAndLatitudeBetweenAndLongitudeBetween(
+                .findByStatusNotInAndUpdatedAtAfterAndLatitudeBetweenAndLongitudeBetween(
                         TERMINAL_STATUSES,
                         detectedAt.minus(Duration.ofSeconds(DEDUP_WINDOW_SECONDS)),
                         lat - dLat, lat + dLat,

@@ -75,6 +75,10 @@ BATTERY_FLOOR = 5.0
 # Fire scenario: default fire point ~800 m north-east of Home.
 FIRE_DEFAULT_LAT = 30.1235
 FIRE_DEFAULT_LON = 114.1285
+# Scenario-04 误报线默认点：与火情线默认点相距约1.2km（> 火情去重半径100m），
+# 否则误报检测会被合并进火情事件、误报演示不产生新事件（D6彩排实测发现）
+FALSE_ALARM_DEFAULT_LAT = 30.1150
+FALSE_ALARM_DEFAULT_LON = 114.1360
 FIRE_TRANSIT_SPEED_MPS = 15.0  # demo pace; restored to CRUISE_SPEED_MPS on arrival
 FIRE_ARRIVAL_RADIUS_M = 10.0  # < 10 m -> arrived, capture starts
 MEDIA_CAPTURE_INTERVAL_TICKS = 2  # one UAV_MEDIA every 2 s (1 Hz tick)

@@ -47,8 +47,8 @@ docker compose ps
 
 | 入口 | 地址 |
 | --- | --- |
-| **Demo 监控页** | http://localhost:8081 |
-| 后端 API | http://localhost:8080/api/v1/uavs |
+| **Demo 监控页** | http://localhost:8181 |
+| 后端 API（经前端同源代理）| http://localhost:8181/api/v1/uavs ；直连 http://localhost:18080 |
 | Mock 模拟器状态 | http://localhost:8002/simulator/status |
 | MinIO 控制台 | http://localhost:9001（forest_fire / forest_fire_dev） |
 
