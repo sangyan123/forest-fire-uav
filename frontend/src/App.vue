@@ -261,12 +261,19 @@ async function onStartScenario(id: string): Promise<void> {
  * 无 CONFIRMED/TRACKING 事件则先自动走 scenario-02 流程（等待事件+核验确认），
  * 然后间隔 3 秒连续两次 analysis，让扩散年轮与趋势面板自动上演。
  */
+/** Scenario-05 上一次分析的事件：连续点击在同一事件上叠加轮次（半径持续扩大） */
+const lastSpreadIncidentId = ref<string | null>(null)
+
 async function runFireSpreadDemo(): Promise<void> {
   scenarioPending.value = 'scenario-05'
   const token = ++scenarioWaitToken
   const cancelled = () => scenarioPending.value !== 'scenario-05' || token !== scenarioWaitToken
   try {
-    let incident: FireIncident | undefined = incidents.value.find((i) => i.status === 'CONFIRMED' || i.status === 'TRACKING')
+    const active = (i: FireIncident) => i.status === 'CONFIRMED' || i.status === 'TRACKING'
+    // 优先延续上一次分析的事件（其年轮/轮次继续增长）；否则选最新确认事件
+    let incident: FireIncident | undefined =
+      incidents.value.find((i) => i.id === lastSpreadIncidentId.value && active(i)) ??
+      incidents.value.find(active)
     if (!incident) {
       pushToast('info', '先注入火情场景，等待事件确认…')
       try {
@@ -275,24 +282,33 @@ async function runFireSpreadDemo(): Promise<void> {
         pushToast('error', `火情注入失败：${e instanceof Error ? e.message : '未知错误'}`)
         return
       }
-      incident = await waitForVerifiedIncident(90000, cancelled)
+      incident = await waitForVerifiedIncident(120000, cancelled)
       if (!incident) {
         if (!cancelled()) pushToast('info', '未在时限内等到确认事件，请先注入火情再试')
         return
       }
     }
     if (cancelled()) return
-    pushToast('info', '火势扩大演示：第 1 轮火场分析')
-    await postIncidentAnalysis(incident.id)
-    if (cancelled()) return
-    // 选中该事件：地图飞向火点、载入年轮多边形、趋势面板出现
+    lastSpreadIncidentId.value = incident.id
+    // 提前选中：飞向火点、开卡，分析轮次在其上叠加
     onSelectFromMap(incident.id)
+    const r1 = (await postIncidentAnalysis(incident.id)) as {
+      growthStep?: number
+      polygon?: { radiusMeters?: number }
+    } | undefined
+    if (cancelled()) return
+    pushToast('info', `火势扩大演示：第 ${(r1?.growthStep ?? 0) + 1} 轮分析（半径 ${Math.round(r1?.polygon?.radiusMeters ?? 0)} 米）`)
+    void loadPolygons(incident.id)
+    void refreshTracking(incident.id)
     window.setTimeout(() => {
       if (cancelled()) return
       void (async () => {
         try {
-          pushToast('info', '火势扩大演示：第 2 轮火场分析（火场范围扩大）')
-          await postIncidentAnalysis(incident.id)
+          const r2 = (await postIncidentAnalysis(incident.id)) as {
+            growthStep?: number
+            polygon?: { radiusMeters?: number }
+          } | undefined
+          pushToast('info', `火势扩大演示：第 ${(r2?.growthStep ?? 1) + 1} 轮分析（半径 ${Math.round(r2?.polygon?.radiusMeters ?? 0)} 米）`)
           void loadPolygons(incident.id)
           void refreshTracking(incident.id)
         } catch (e) {
