@@ -258,13 +258,19 @@ async function onStartScenario(id: string): Promise<void> {
     return
   }
   try {
-    await startScenario(id)
+    const started = await startScenario(id)
+    currentScenarioId.value = id // 本地置位，高亮即时反馈；轮询随后校正
+    const dst = started?.fireScenario
+    // 无人机正在飞往的起火点坐标（模拟器按预设点位轮换返回，见 mock-uav FIRE_PRESET_POINTS）
+    if (dst?.active && dst.latitude != null && dst.longitude != null) {
+      pushToast('info', `${meta.startToast}，飞往 (${dst.latitude.toFixed(4)}, ${dst.longitude.toFixed(4)})`)
+    } else {
+      pushToast('info', meta.startToast)
+    }
   } catch (e) {
     pushToast('error', `启动场景失败：${e instanceof Error ? e.message : '未知错误'}`)
     return
   }
-  currentScenarioId.value = id // 本地置位，高亮即时反馈；轮询随后校正
-  pushToast('info', meta.startToast)
   if (id === 'scenario-06') {
     await runCommsLossDemo()
     return

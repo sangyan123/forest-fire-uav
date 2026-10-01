@@ -85,13 +85,36 @@ export function stopFireScenario(): Promise<unknown> {
 
 /* ---------------- 场景注册表（simulator, :8002） ---------------- */
 
-/** 启动注册表场景：scenario-01 正常巡检 / scenario-02 火情发现 / scenario-04 误报；未知号返回 40001 */
-export function startScenario(scenarioId: string, body?: Record<string, unknown>): Promise<unknown> {
-  return requestBase<unknown>(SIM_BASE, `/simulator/scenarios/${encodeURIComponent(scenarioId)}/start`, {
-    method: 'POST',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(body ?? {}),
-  })
+/** 场景注册表启动响应（mock-uav /simulator/scenarios/{id}/start） */
+export interface SimulatorScenarioStart {
+  scenarioId?: string
+  verdict?: string
+  silenceSeconds?: number
+  commsSilent?: boolean
+  resumeInSeconds?: number
+  fireScenario?: {
+    active?: boolean
+    latitude?: number | null
+    longitude?: number | null
+    capturing?: boolean
+    verdict?: string
+  }
+}
+
+/** 启动注册表场景：scenario-01 正常巡检 / scenario-02 火情发现 / scenario-03 编排 / scenario-04 误报 / scenario-05 编排 / scenario-06 断联；未知号返回 40001 */
+export function startScenario(
+  scenarioId: string,
+  body?: Record<string, unknown>,
+): Promise<SimulatorScenarioStart> {
+  return requestBase<SimulatorScenarioStart>(
+    SIM_BASE,
+    `/simulator/scenarios/${encodeURIComponent(scenarioId)}/start`,
+    {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(body ?? {}),
+    },
+  )
 }
 
 /** 模拟器状态（含 currentScenarioId），字段宽松解析见 fire.ts parseSimulatorStatus */
