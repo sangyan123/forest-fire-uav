@@ -737,11 +737,11 @@ onUnmounted(() => {
           :key="s.id"
           class="fire-btn"
           :class="[s.css, { active: currentScenarioId === s.id }]"
-          :disabled="scenarioPending !== null"
+          :disabled="scenarioPending !== null && s.id !== 'scenario-01'"
           @click="onStartScenario(s.id)"
         >
           <span v-if="scenarioPending === s.id" class="spinner"></span>
-          <template v-if="scenarioPending === s.id">等待事件生成…</template>
+          <template v-if="scenarioPending === s.id">等待事件生成…（点 01 取消）</template>
           <template v-else>{{ s.label }}</template>
         </button>
         <div class="conn" :class="connectionLost ? 'bad' : 'ok'">
