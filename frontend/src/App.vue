@@ -51,7 +51,8 @@ const STATE_POLL_MS = 1000
 const COMMAND_POLL_MS = 1000
 const INCIDENT_POLL_MS = 2000
 const SIMULATOR_POLL_MS = 2000
-const SCENARIO_WAIT_TIMEOUT_MS = 20000
+// 转场飞行约60~75秒（900m@15m/s）+采集/检测/入库，事件生成最长可达2分钟
+const SCENARIO_WAIT_TIMEOUT_MS = 120000
 const MAX_TRACKED = 12
 
 const state = ref<UavState | null>(null)
@@ -241,12 +242,15 @@ async function onStartScenario(id: string): Promise<void> {
   }
   if (meta.waitType === null) return // scenario-01 无需等待新事件
   scenarioPending.value = id
+  // 先等首次轮询把现有事件入册，再做快照——否则空快照会把旧事件误判为"新事件"，
+  // 等待状态被瞬间清掉（D7 实测：页面刚加载时点场景按钮必现）
+  await pollIncidents()
   scenarioSnapshot = new Set(knownIncidentIds)
   const token = ++scenarioWaitToken
   window.setTimeout(() => {
     if (scenarioPending.value === id && token === scenarioWaitToken) {
       resolveScenarioWait(false)
-      pushToast('info', '暂未在事件列表中看到新事件，可稍后继续观察')
+      pushToast('info', '暂未生成新事件（转场飞行约需1分钟），可继续等待或稍后观察列表')
     }
   }, SCENARIO_WAIT_TIMEOUT_MS)
   void pollIncidents()
