@@ -220,6 +220,13 @@ async function onStartScenario(id: string): Promise<void> {
   if (scenarioPending.value !== null) return
   const meta = SCENARIOS.find((s) => s.id === id)
   if (!meta) return
+  // Scenario-05 是前端编排（无 mock 场景端点）：自动注入火情→等确认→两轮分析
+  if (id === 'scenario-05') {
+    currentScenarioId.value = id
+    pushToast('info', meta.startToast)
+    await runFireSpreadDemo()
+    return
+  }
   try {
     await startScenario(id)
   } catch (e) {
@@ -228,10 +235,6 @@ async function onStartScenario(id: string): Promise<void> {
   }
   currentScenarioId.value = id // 本地置位，高亮即时反馈；轮询随后校正
   pushToast('info', meta.startToast)
-  if (id === 'scenario-05') {
-    await runFireSpreadDemo()
-    return
-  }
   if (id === 'scenario-06') {
     await runCommsLossDemo()
     return
@@ -278,6 +281,8 @@ async function runFireSpreadDemo(): Promise<void> {
     pushToast('info', '火势扩大演示：第 1 轮火场分析')
     await postIncidentAnalysis(incident.id)
     if (cancelled()) return
+    // 选中该事件：地图飞向火点、载入年轮多边形、趋势面板出现
+    onSelectFromMap(incident.id)
     window.setTimeout(() => {
       if (cancelled()) return
       void (async () => {
@@ -285,6 +290,7 @@ async function runFireSpreadDemo(): Promise<void> {
           pushToast('info', '火势扩大演示：第 2 轮火场分析（火场范围扩大）')
           await postIncidentAnalysis(incident.id)
           void loadPolygons(incident.id)
+          void refreshTracking(incident.id)
         } catch (e) {
           pushToast('error', `分析失败：${e instanceof Error ? e.message : '未知错误'}`)
         }

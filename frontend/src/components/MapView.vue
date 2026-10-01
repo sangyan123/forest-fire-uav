@@ -354,6 +354,11 @@ function redrawPolygons(): void {
 
 watch([() => props.selectedId, () => props.polygons], () => {
   redrawPolygons()
+  // 外部选中（Scenario-05 编排/列表点击）同步打开事件卡：
+  // 否则趋势面板与火场分析按钮只在 marker 点击路径出现（D6 彩排发现）
+  if (props.selectedId && props.selectedId !== openCardId.value) {
+    openIncidentCard(props.selectedId)
+  }
 })
 
 /** 分析成功后：最新一代多边形播放一次扩散动画（渐入+轻微缩放，约 1s） */
