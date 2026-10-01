@@ -172,6 +172,15 @@ const SCENARIOS: ScenarioMeta[] = [
     foundToast: '火情事件已生成，无人机前往核查',
   },
   {
+    id: 'scenario-03',
+    label: '🔬 Scenario-03 二次核验',
+    css: '',
+    waitType: null,
+    pendingLabel: '核验演示进行中…',
+    startToast: '二次核验演示开始（无疑似事件时自动注入火情）',
+    foundToast: '',
+  },
+  {
     id: 'scenario-04',
     label: '⚠️ Scenario-04 误报',
     css: 'warn',
@@ -218,14 +227,34 @@ function resolveScenarioWait(found: boolean): void {
 }
 
 async function onStartScenario(id: string): Promise<void> {
-  if (scenarioPending.value !== null) return
+  // Scenario-01 在等待期间也可点击：取消当前等待并停止场景，恢复巡检
+  if (scenarioPending.value !== null && id !== 'scenario-01') return
   const meta = SCENARIOS.find((s) => s.id === id)
   if (!meta) return
+  if (id === 'scenario-01') {
+    if (scenarioPending.value !== null) resolveScenarioWait(false) // 取消等待
+    try {
+      await startScenario(id)
+    } catch (e) {
+      pushToast('error', `停止场景失败：${e instanceof Error ? e.message : '未知错误'}`)
+      return
+    }
+    currentScenarioId.value = id
+    pushToast('info', meta.startToast)
+    return
+  }
   // Scenario-05 是前端编排（无 mock 场景端点）：自动注入火情→等确认→两轮分析
   if (id === 'scenario-05') {
     currentScenarioId.value = id
     pushToast('info', meta.startToast)
     await runFireSpreadDemo()
+    return
+  }
+  // Scenario-03 是前端编排：自动注入火情（如无疑似事件）→ 自动触发核验
+  if (id === 'scenario-03') {
+    currentScenarioId.value = id
+    pushToast('info', meta.startToast)
+    await runVerificationDemo()
     return
   }
   try {
@@ -254,6 +283,46 @@ async function onStartScenario(id: string): Promise<void> {
     }
   }, SCENARIO_WAIT_TIMEOUT_MS)
   void pollIncidents()
+}
+
+/**
+ * Scenario-03 二次核验编排：确保存在疑似/核验中事件（无则自动注入火情），
+ * 自动触发核验并展示结论。
+ */
+async function runVerificationDemo(): Promise<void> {
+  scenarioPending.value = 'scenario-03'
+  const token = ++scenarioWaitToken
+  const cancelled = () => scenarioPending.value !== 'scenario-03' || token !== scenarioWaitToken
+  try {
+    let incident = incidents.value.find((i) => i.status === 'SUSPECTED' || i.status === 'VERIFYING')
+    if (!incident) {
+      try {
+        await startScenario('scenario-02')
+      } catch (e) {
+        pushToast('error', `火情注入失败：${e instanceof Error ? e.message : '未知错误'}`)
+        return
+      }
+      const deadline = Date.now() + 120000
+      while (Date.now() < deadline && !cancelled()) {
+        await pollIncidents()
+        incident = incidents.value.find((i) => i.status === 'SUSPECTED' || i.status === 'VERIFYING')
+        if (incident) break
+        await new Promise((r) => setTimeout(r, 3000))
+      }
+      if (!incident) {
+        if (!cancelled()) pushToast('info', '未在时限内等到疑似事件')
+        return
+      }
+    }
+    if (cancelled()) return
+    onSelectFromList(incident.id) // 打开事件卡，画面聚焦
+    await onVerify(incident.id)   // 自动触发核验（内部有结论 toast）
+  } finally {
+    if (scenarioPending.value === 'scenario-03' && token === scenarioWaitToken) {
+      scenarioPending.value = null
+      scenarioSnapshot = null
+    }
+  }
 }
 
 /**

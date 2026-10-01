@@ -55,15 +55,17 @@ export function fireStatusPulse(status?: string | null): boolean {
 }
 
 /* ---------------- 状态机：当前状态可达的下一态 ---------------- */
+/* 与 backend TRANSITIONS（FireIncidentService）逐字对齐：
+   FALSE_ALARM 仅从 VERIFYING 到达（核验结论），CONFIRMED 后不可改判误报 */
 
 const FIRE_NEXT: Record<string, string[]> = {
-  SUSPECTED: ['VERIFYING', 'FALSE_ALARM'],
+  SUSPECTED: ['VERIFYING'],
   VERIFYING: ['CONFIRMED', 'FALSE_ALARM'],
-  CONFIRMED: ['TRACKING', 'FALSE_ALARM'],
-  FALSE_ALARM: ['CLOSED'],
-  TRACKING: ['PROCESSING', 'RESOLVED'],
+  CONFIRMED: ['TRACKING'],
+  TRACKING: ['PROCESSING'],
   PROCESSING: ['RESOLVED'],
   RESOLVED: ['CLOSED'],
+  FALSE_ALARM: [],
   CLOSED: [],
 }
 

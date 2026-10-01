@@ -23,8 +23,8 @@ const TIERS = [
   { z: 13, latMin: 29.85, latMax: 30.45, lonMin: 113.85, lonMax: 114.45 },
   { z: 14, latMin: 30.0, latMax: 30.35, lonMin: 114.0, lonMax: 114.3 },
   { z: 15, latMin: 30.08, latMax: 30.18, lonMin: 114.08, lonMax: 114.18 },
-  { z: 16, latMin: 30.1, latMax: 30.16, lonMin: 114.1, lonMax: 114.16 },
-  { z: 17, latMin: 30.115, latMax: 30.135, lonMin: 114.115, lonMax: 114.145 },
+  { z: 16, latMin: 30.08, latMax: 30.18, lonMin: 114.08, lonMax: 114.18 },
+  { z: 17, latMin: 30.08, latMax: 30.18, lonMin: 114.08, lonMax: 114.18 },
 ];
 
 const lon2tile = (lon, z) => Math.floor(((lon + 180) / 360) * 2 ** z);

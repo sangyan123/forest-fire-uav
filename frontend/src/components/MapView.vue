@@ -115,7 +115,14 @@ const cardBusyVerify = computed(
 const cardBusyDispatch = computed(
   () => props.busy?.action === 'dispatch' && props.busy.incidentId === openCardId.value,
 )
-const cardTerminated = computed(() => cardStatus.value === 'CLOSED')
+/** 核验仅限 SUSPECTED/VERIFYING（backend 规则）；终态/已确认事件不可再核验 */
+const cardCanVerify = computed(
+  () => cardStatus.value === 'SUSPECTED' || cardStatus.value === 'VERIFYING',
+)
+/** 派单仅对未关闭事件有意义（FALSE_ALARM/RESOLVED/CLOSED 不可派单） */
+const cardCanDispatch = computed(
+  () => !['FALSE_ALARM', 'RESOLVED', 'CLOSED'].includes(cardStatus.value),
+)
 const cardIsFalseAlarm = computed(() => isFalseAlarmDemo(cardIncident.value))
 const cardTimeline = computed<StatusPoint[]>(() => {
   const inc = cardIncident.value
@@ -536,17 +543,17 @@ onUnmounted(() => {
       <div class="ic-actions">
         <button
           class="btn ic-btn"
-          :disabled="cardTerminated || cardBusyVerify"
+          :disabled="!cardCanVerify || cardBusyVerify"
           @click="emit('verify', cardIncident.id)"
         >
-          {{ cardBusyVerify ? '核验中…' : '触发核验' }}
+          {{ cardBusyVerify ? '核验中…' : cardCanVerify ? '触发核验' : '当前状态不可核验' }}
         </button>
         <button
           class="btn ic-btn"
-          :disabled="cardTerminated || cardBusyDispatch || cardDispatched || cardIncident.latitude === null"
+          :disabled="!cardCanDispatch || cardBusyDispatch || cardDispatched || cardIncident.latitude === null"
           @click="emit('dispatch', cardIncident.id)"
         >
-          {{ cardDispatched ? '已派单' : cardBusyDispatch ? '派单中…' : '派单核验' }}
+          {{ cardDispatched ? '已派单' : cardBusyDispatch ? '派单中…' : cardCanDispatch ? '派单核验' : '不可派单' }}
         </button>
       </div>
       <div class="ic-analysis-row">
