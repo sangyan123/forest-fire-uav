@@ -18,6 +18,7 @@
 | 2026-09-27 | 第⑥步：建立 docs/api/openapi.yaml（openapi-v1.0，OpenAPI 3.0.3） | 以07号V1.2为唯一语义来源：34路径/37操作（Auth四接口+UAV管理+Fire检测/事件/火点/核验+Mission CRUD与四动作+Dispatch+Command九命令+AI六接口/ai/v1）；Bearer JWT全局安全、登录/刷新豁免；统一Envelope{code,message,data,requestId}与14值ApiCode枚举（40002/40401语义界定写入描述）；17个枚举schema与enums.yaml值数逐一核对一致（含MediaType补齐）；TargetPoint强制altitude+altitudeMode；WS端点/MQTT主题/核心闭环链记入info.description；校验通过（64引用零悬空、responses齐全、路径参数经components声明）；另修正07号第10章示例gpsStatus FIXED→3D_FIX（对齐05号owner枚举） |
 | 2026-09-27 | 第⑦步：建立 docs/protocol/uav-json-schema/（uav-json-schema-v1.0） | defs.schema.json（Header/13子模型/17枚举/载荷定义）+10个消息schema（UAV_STATE扁平13子模型、HEARTBEAT、TELEMETRY六子模型、MEDIA、CAPABILITY、MISSION_STATE、ENVIRONMENT、EVENT 17类型、COMMAND九命令、COMMAND_RESULT）+README+5个示例实例（取自05号文档示例）；draft-07；ajv编译10/10通过、示例校验5/5通过；顺带修正05号两处gpsStatus"FIX"→3D_FIX（对齐自家枚举）、07号第25章UAV_STATE示例payload包裹改为05号扁平结构；新发现并登记ISSUE-004：设备侧DeviceCommandStatus（05号42章9值）与平台侧CommandStatus（07/09号8值）两套命令状态并存，已双枚举入enums.yaml，映射归一待Phase 2协议打通时评审 |
 
+| 2026-09-28 | 文档偏差回写与ISSUE-004关闭（D6前治理收尾） | 账①：07号新增31.1节平台/设备命令状态映射表+关闭ISSUE-004，05号第42章补交叉引用；账②：六个专项文档补MVP偏差附录——03号V1.2第90章（F01~F09简化/表结构差异/未实现清单）、06号V1.2第57章（A01~A12 mock行为与真实化路径，另登记A09调度权重0.4/0.3/0.2/0.1与设计0.30/0.20/0.20/0.15/0.15差异）、07号V1.3第36章（无鉴权/轮询/命令状态直存/WS未接）、10号V1.2第83章（DEV栈演示/监控未部署/Secret硬编码/RPO未演练）、11号V2.3第90章（D0~D5执行记录+新增简化项）、09号V1.2第0.5节（MOCK only属Phase 9A计划内非偏差）；另修正陈旧治理引用：V1.3冲突处理机制为第76章（原引第71章系V1.1编号），change-log/enums/03号已同步 |
 | 2026-09-28 | 第⑧步：建立 db/migration/（migration V1/V2） | V1__baseline_schema.sql（859行：CREATE EXTENSION postgis + 34张表按04号V1.2文档顺序 + 8个索引，同名索引去重）+ V2__seed_rbac_permissions.sql（11项权限种子，ON CONFLICT幂等）+ README；由04号DDL程序化提取组装（零手抄）；校验：43条语句全部通过node-sql-parser PostgreSQL语法解析、括号/分号零异常、表清单与04号冻结34表逐一比对无缺无余、回写字段落位确认（fire_track.event_time、fire_point.location_method、algorithm_task.config/dataset_version、risk_area_assessment）；文档既定但未定稿事项如实注明（逻辑外键、UUID应用侧生成、telemetry分区待运维评审V3+） |
 
 | 2026-09-28 | 第⑨~⑫步：建立 Algorithm/Auth/RBAC Config 与 branch-policy，核对11号引用 | ⑨ config/algorithm/ 五文件：fire-detection-v1（0.40/0.60/0.80+5帧3中）、verification-v1（0.35/0.35/0.15/0.15+0.80/0.50）、uav-safety-v1（电量四级+Vendor Profile规则+命令权限）均ACTIVE镜像constants.yaml；tracking-v1（PENDING_PARAMETERS）、risk-v1（PENDING_ISSUE-001，七因子骨架weight:null零发明）；⑩ config/auth/auth-v1.yaml：Token 30min/7d唯一拥有者（constants.yaml#auth_token_lifetime同步标记migrated_to_auth_config）、六角色11权限+role_permissions矩阵（与07号§35.7逐项比对一致）；⑪ docs/00-doc/branch-policy.yaml（main禁直接Push、PR+Review+CI、GitHub Branch Ruleset执行、分支模型与CI流水线）；⑫ 核对11号V2.1引用（branch-policy.yaml×3、Gate0×2，config路径按第73章范围无需引用）——一致，无需再改 |
@@ -38,7 +39,7 @@
 
 ------
 
-## 二、未决 Issue（按基线第71章流程登记）
+## 二、未决 Issue（按基线第76章流程登记）
 
 ### ISSUE-001 F07 风险权重缺 human_activity 因子
 
@@ -74,10 +75,10 @@
 - **处置：** 已按"两个层面并存"处理——双枚举均入 enums.yaml（DeviceCommandStatus owner=05；CommandStatus owner=07/09），schema 按各自口径定义。
 - **解决路径：** Phase 2（UAV统一协议打通）时由 05+07+09 共同评审映射表（Gateway 翻译设备上报到平台状态），或将两套归一为一套。
 - **阻塞项：** 不阻塞 Phase 0~1；Phase 2 Mock UAV↔Gateway↔Backend 双向通信验收前必须落地映射表。
-- **状态：** OPEN（等待Phase 2评审）
+- **状态：** **CLOSED（2026-09-28）**——映射表已入07号新增第31.1节（设备侧9值→平台侧8值逐项对应，Gateway负责上行翻译），05号第42章补交叉引用；MVP偏差（backend PATCH暂直存设备侧9值）已在07号第36章附录如实记录，翻译功能列演示后第一批工程化。
 
 ------
 
 ## 三、登记规则
 
-新 Issue 在此处登记；关闭时将状态改为 CLOSED 并注明解决变更条目。字段/枚举/API/参数类变更必须同步基线第71章流程（更新主定义→更新机器来源→同步引用文档→更新代码与测试）。
+新 Issue 在此处登记；关闭时将状态改为 CLOSED 并注明解决变更条目。字段/枚举/API/参数类变更必须同步基线第76章流程（更新主定义→更新机器来源→同步引用文档→更新代码与测试）。
