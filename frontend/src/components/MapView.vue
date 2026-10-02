@@ -68,7 +68,7 @@ const DEFAULT_ALTITUDE = 120
 const DEFAULT_CENTER: L.LatLngExpression = [30.12, 114.13]
 const DEFAULT_ZOOM = 15
 /** 演示区 bbox（z13 覆盖范围 29.85~30.45N, 113.85~114.45E），钳制防止拖出有瓦片区 */
-const DEMO_BOUNDS = L.latLngBounds([29.85, 113.85], [30.45, 114.45])
+const DEMO_BOUNDS = L.latLngBounds([30.08, 114.08], [30.18, 114.18])
 /** 1x1 透明 png：缺失瓦片不显示破图 */
 const TRANSPARENT_TILE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
