@@ -67,8 +67,17 @@ const DEFAULT_ALTITUDE = 120
 /** 演示区中心（火场常用区域） */
 const DEFAULT_CENTER: L.LatLngExpression = [30.12, 114.13]
 const DEFAULT_ZOOM = 15
-/** 拖拽边界 = z13 瓦片覆盖范围（29.85~30.45N, 113.85~114.45E），此范围内任意缩放级别都有瓦片 */
-const DEMO_BOUNDS = L.latLngBounds([29.85, 113.85], [30.45, 114.45])
+/** 各缩放级别的可拖拽边界 = 该级别本地瓦片的实际覆盖范围（走不出无瓦片区，边缘不再变蓝） */
+const BOUNDS_BY_ZOOM: Array<{ min: number; bounds: L.LatLngBounds }> = [
+  { min: 13, bounds: L.latLngBounds([29.85, 113.85], [30.45, 114.45]) },
+  { min: 14, bounds: L.latLngBounds([30.0, 114.0], [30.35, 114.3]) },
+  { min: 15, bounds: L.latLngBounds([30.09, 114.09], [30.17, 114.19]) }, // z15~17 共用
+]
+function boundsForZoom(z: number): L.LatLngBounds {
+  let b = BOUNDS_BY_ZOOM[0].bounds
+  for (const e of BOUNDS_BY_ZOOM) if (z >= e.min) b = e.bounds
+  return b
+}
 /** 1x1 透明 png：缺失瓦片不显示破图 */
 const TRANSPARENT_TILE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
@@ -453,32 +462,25 @@ onMounted(() => {
   map = L.map(mapEl.value, {
     center: DEFAULT_CENTER,
     zoom: DEFAULT_ZOOM,
-    // 视野钳制在离线瓦片演示区（外扩），防止拖出无瓦片区
-    maxBounds: DEMO_BOUNDS,
+    // 视野钳制在当前缩放级别的本地瓦片覆盖区（分级边界见 BOUNDS_BY_ZOOM）
+    maxBounds: boundsForZoom(DEFAULT_ZOOM),
     maxBoundsViscosity: 0.8, // 软性边界：边缘有回弹，不是死墙
   })
-  // 底层：远程 Esri 卫星影像（在线时全域覆盖；离线时此层失效露出背景，
-  // 演示核心区由上层本地瓦片接管）—— 注意 Esri URL 坐标顺序为 {z}/{y}/{x}
-  L.tileLayer(
-    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    {
-      minZoom: 13,
-      maxZoom: 17,
-      noWrap: true,
-      className: 'map-tiles remote',
-      attribution:
-        'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Earthstar Geographics',
-    },
-  ).addTo(map)
-  // 顶层：本地离线瓦片（frontend/public/tiles/{z}/{x}/{y}.jpg，build 后随 dist/ 发布）
-  // 演示核心区即时加载；本层缺失的瓦片透出底层远程影像
+  // 缩放级别变化时同步收紧/放宽边界——用户在任何级别都走不出有瓦片的区域
+  map.on('zoomend', () => {
+    map?.setMaxBounds(boundsForZoom(map.getZoom()))
+  })
+  // 本地离线瓦片（frontend/public/tiles/{z}/{x}/{y}.jpg，build 后随 dist/ 发布）
+  // 源: Esri World_Imagery 卫星影像（scripts/fetch-tiles.mjs 一次性下载）
+  // 之前叠过的远程 Esri 层已移除：其在无影像区域返回纯蓝"无数据"瓦片，即"放大变蓝"的根源
   L.tileLayer('tiles/{z}/{x}/{y}.jpg', {
     minZoom: 13,
     maxZoom: 17,
     noWrap: true,
     errorTileUrl: TRANSPARENT_TILE,
     className: 'map-tiles',
-    opacity: 0.999, // 确保顶层本地瓦片存在时压住远程层
+    attribution:
+      'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Earthstar Geographics',
   }).addTo(map)
   map.on('click', onMapClick)
   map.on('move', () => {
