@@ -67,8 +67,8 @@ const DEFAULT_ALTITUDE = 120
 /** 演示区中心（火场常用区域） */
 const DEFAULT_CENTER: L.LatLngExpression = [30.12, 114.13]
 const DEFAULT_ZOOM = 15
-/** 演示区 bbox（z13 覆盖范围 29.85~30.45N, 113.85~114.45E），钳制防止拖出有瓦片区 */
-const DEMO_BOUNDS = L.latLngBounds([30.08, 114.08], [30.18, 114.18])
+/** 拖拽边界 = z13 瓦片覆盖范围（29.85~30.45N, 113.85~114.45E），此范围内任意缩放级别都有瓦片 */
+const DEMO_BOUNDS = L.latLngBounds([29.85, 113.85], [30.45, 114.45])
 /** 1x1 透明 png：缺失瓦片不显示破图 */
 const TRANSPARENT_TILE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
@@ -455,7 +455,7 @@ onMounted(() => {
     zoom: DEFAULT_ZOOM,
     // 视野钳制在离线瓦片演示区（外扩），防止拖出无瓦片区
     maxBounds: DEMO_BOUNDS,
-    maxBoundsViscosity: 1.0,
+    maxBoundsViscosity: 0.8, // 软性边界：边缘有回弹，不是死墙
   })
   // 本地离线瓦片（frontend/public/tiles/{z}/{x}/{y}.jpg，build 后随 dist/ 发布）
   // 源: Esri World_Imagery 卫星影像（scripts/fetch-tiles.mjs 一次性下载；断网可演示）
