@@ -457,16 +457,28 @@ onMounted(() => {
     maxBounds: DEMO_BOUNDS,
     maxBoundsViscosity: 0.8, // 软性边界：边缘有回弹，不是死墙
   })
-  // 本地离线瓦片（frontend/public/tiles/{z}/{x}/{y}.jpg，build 后随 dist/ 发布）
-  // 源: Esri World_Imagery 卫星影像（scripts/fetch-tiles.mjs 一次性下载；断网可演示）
+  // 底层：远程 Esri 卫星影像（在线时全域覆盖；离线时此层失效露出背景，
+  // 演示核心区由上层本地瓦片接管）—— 注意 Esri URL 坐标顺序为 {z}/{y}/{x}
+  L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    {
+      minZoom: 13,
+      maxZoom: 17,
+      noWrap: true,
+      className: 'map-tiles remote',
+      attribution:
+        'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Earthstar Geographics',
+    },
+  ).addTo(map)
+  // 顶层：本地离线瓦片（frontend/public/tiles/{z}/{x}/{y}.jpg，build 后随 dist/ 发布）
+  // 演示核心区即时加载；本层缺失的瓦片透出底层远程影像
   L.tileLayer('tiles/{z}/{x}/{y}.jpg', {
     minZoom: 13,
     maxZoom: 17,
     noWrap: true,
     errorTileUrl: TRANSPARENT_TILE,
     className: 'map-tiles',
-    attribution:
-      'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Earthstar Geographics',
+    opacity: 0.999, // 确保顶层本地瓦片存在时压住远程层
   }).addTo(map)
   map.on('click', onMapClick)
   map.on('move', () => {
