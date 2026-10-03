@@ -32,4 +32,14 @@ public interface FireIncidentRepository extends JpaRepository<FireIncidentEntity
             Instant updatedAtAfter,
             Double latitudeLowest, Double latitudeGreatest,
             Double longitudeLowest, Double longitudeGreatest);
+
+    /**
+     * 误报抑制（D8）粗筛：status=FALSE_ALARM、updated_at（判定落库时间）在抑制窗口内、
+     * 经纬度矩形圈选，随后服务层 Haversine 精算 ≤去重距离。
+     */
+    List<FireIncidentEntity> findByStatusAndUpdatedAtAfterAndLatitudeBetweenAndLongitudeBetween(
+            String status,
+            Instant updatedAtAfter,
+            Double latitudeLowest, Double latitudeGreatest,
+            Double longitudeLowest, Double longitudeGreatest);
 }

@@ -26,3 +26,4 @@ dedup:                       # 火情候选去重（与backend共用，基线第
   distance_m: 100
   time_s: 120
   same_category_required: true
+  false_alarm_suppress_window_s: 1800  # 误报终态后同点抑制窗口（镜像constants.yaml#fire_dedup，D8）

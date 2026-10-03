@@ -152,7 +152,15 @@ const cardBusyAnalyze = computed(
 const cardRound = computed(() => {
   const inc = cardIncident.value
   if (!inc) return 0
-  return props.analysis?.growthStep ?? props.analysisRounds[inc.id] ?? 0
+  // 轮次取多来源最大值自愈：服务端多边形数量是事实真相（每轮分析恰一多边形），
+  // 任一分析响应丢失或页面刷新后，轮询回填会把标签拉回正确值（轮次只增不减，取 max 安全）
+  const candidates = [
+    props.analysis?.growthStep,
+    props.analysisRounds[inc.id],
+    props.polygons.length,
+  ]
+  const values = candidates.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+  return values.length > 0 ? Math.max(...values) : 0
 })
 const cardLatestShape = computed<FirePolygonShape | null>(() => {
   if (props.analysis?.polygon) return props.analysis.polygon

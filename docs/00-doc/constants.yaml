@@ -97,6 +97,7 @@ constants:
     distance_m: 100                  # DEDUP_DISTANCE：空间距离阈值
     time_s: 120                      # DEDUP_TIME：时间差阈值
     same_category_required: true     # 类别一致才判同一火情候选事件
+    false_alarm_suppress_window_s: 1800  # FALSE_ALARM_SUPPRESS：误报终态后同点（≤distance_m）抑制窗口，检测挂原事件留痕不新建（D8彩排实测裂事件缺陷；RESOLVED/CLOSED不抑制）
     note: "V1工程基线，不是森林火灾的通用科学阈值。"
     consumers: ["doc-03", "doc-04", "doc-08", "backend"]
 

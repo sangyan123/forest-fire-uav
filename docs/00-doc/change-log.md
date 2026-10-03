@@ -44,6 +44,8 @@
 
 | 2026-10-03 | README/演示讲稿过时口径更新 | README「当前状态」由停滞的 Phase 0 更新为实际进度（MVP 演示版完成 D1~D7、整体约四分之一、后置工程化项清单），目录速览改"火情闭环主链路已实现（mock 模式）"，文档索引补 HANDOVER.md/演示讲稿入口，快速开始补 reset-demo.sh 步骤；演示讲稿两处瓦片口径同步 10-02 落地现状——检查清单"瓦片来自 OpenStreetMap 需外网"与风险表"提前缓存离线瓦片"改为本地 898 块离线 Esri 卫星瓦片+远程垫底（断网可演示）。备注：09-28 D7补充3 之后至 10-02 的约15个提交（场景轮换点位/地图瓦片四连修等）尚未逐条登记，待补 |
 
+| 2026-10-03 | D8 彩排（浏览器实测）完成——误报裂事件与轮次口径两项缺陷修复 | 彩排环境重建（--build 九容器）+ 五场景/地图/瓦片/轮换/取消全走查通过（离线瓦片审计：127 请求全本地、远程 0 次；起火点轮换 P1→P2 实测；缩放分级动态边界边缘放大禁用生效）。修复两项彩排暴露缺陷：①**误报终态后裂新事件**（INC-0002 判 FALSE_ALARM 后 2 秒同坐标裂出 INC-0003）——根因：去重候选排除终态事件，误报后持续采集的每个检测必然新建事件；修复：FALSE_ALARM 抑制窗口（constants.yaml#fire_dedup.false_alarm_suppress_window_s=1800 镜像 fire-detection-v1.yaml，RESOLVED/CLOSED 不抑制），窗口内同点检测挂原事件留痕不新建；实测判定后 90 秒恒 1 事件、12 检测全部挂接、backend 抑制日志逐条打印。②**growthStep 三处口径不一**——后端返回 0 基（=已有轮数）、Scenario-05 编排路径 +1 显示、手动路径裸显 → 手动首次分析 toast"第 0 轮"（此前误判为"连点响应丢失"，实为 curl || 回退重复执行分析所致假象）；修复：FireAnalysisService 响应改 1 基（本轮序号，AI 分割索引仍 0 基），App.vue Scenario-05 编排删 +1 补偿，MapView 轮次标签改多来源取最大自愈（服务端多边形数=事实真相，响应丢失/页面刷新后轮询自动纠正——修复前 F5 后轮次清零，修复后正确显示）；实测 toast/按钮/面板三处一致递增（第2轮240m→第3轮330m）。讲稿两处同步：第5步"指令状态从执行中变为成功"改为实际可见口径（指令跟踪面板仅记录前端会话指令，派单 GOTO 不入面板），第6步补"FALSE_ALARM 后点 Scenario-01 停采集"标准动作（抑制窗口上线前的双保险）。涉及：FireIncidentService/FireIncidentRepository/FireAnalysisService、constants.yaml、fire-detection-v1.yaml、App.vue/MapView.vue、客户演示讲稿 |
+
 ------
 
 ## 二、未决 Issue（按基线第76章流程登记）

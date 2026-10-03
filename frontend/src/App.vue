@@ -372,7 +372,8 @@ async function runFireSpreadDemo(): Promise<void> {
       polygon?: { radiusMeters?: number }
     } | undefined
     if (cancelled()) return
-    pushToast('info', `火势扩大演示：第 ${(r1?.growthStep ?? 0) + 1} 轮分析（半径 ${Math.round(r1?.polygon?.radiusMeters ?? 0)} 米）`)
+    // 后端 growthStep 已是 1 基（本轮序号），无需 +1 补偿（D8 修复：与手动路径口径统一）
+    pushToast('info', `火势扩大演示：第 ${r1?.growthStep ?? 1} 轮分析（半径 ${Math.round(r1?.polygon?.radiusMeters ?? 0)} 米）`)
     void loadPolygons(incident.id)
     void refreshTracking(incident.id)
     window.setTimeout(() => {
@@ -383,7 +384,7 @@ async function runFireSpreadDemo(): Promise<void> {
             growthStep?: number
             polygon?: { radiusMeters?: number }
           } | undefined
-          pushToast('info', `火势扩大演示：第 ${(r2?.growthStep ?? 1) + 1} 轮分析（半径 ${Math.round(r2?.polygon?.radiusMeters ?? 0)} 米）`)
+          pushToast('info', `火势扩大演示：第 ${r2?.growthStep ?? 2} 轮分析（半径 ${Math.round(r2?.polygon?.radiusMeters ?? 0)} 米）`)
           void loadPolygons(incident.id)
           void refreshTracking(incident.id)
         } catch (e) {

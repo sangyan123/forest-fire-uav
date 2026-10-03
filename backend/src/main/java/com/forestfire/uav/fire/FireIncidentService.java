@@ -50,6 +50,15 @@ public class FireIncidentService {
     /** 去重时间窗（秒）——fire-detection-v1.yaml dedup.time_s */
     static final long DEDUP_WINDOW_SECONDS = 120;
 
+    /**
+     * 误报抑制窗口（秒）——fire-detection-v1.yaml dedup.false_alarm_suppress_window_s。
+     * FALSE_ALARM 终态事件在窗口内、同点（≤去重距离）的后续检测不再新建事件（挂接原事件留痕）。
+     * D8 彩排实测缺陷：误报判定后无人机仍在采集，检测因终态事件不参与去重而裂出新 SUSPECTED 事件
+     * （INC-0002 判误报后 2 秒同坐标冒出 INC-0003）。取 30 分钟：覆盖演示采集全程，
+     * 真实复燃概率低；RESOLVED/CLOSED 不抑制（处置完毕后的复燃属新警情，应当告警）。
+     */
+    static final long FALSE_ALARM_SUPPRESS_SECONDS = 1800;
+
     /** T_alert（自动创建 detection 的置信度下限）——fire-detection-v1.yaml thresholds.t_alert */
     public static final double T_ALERT = 0.60;
 
@@ -144,6 +153,10 @@ public class FireIncidentService {
      * <p>D2 误报演示线：scenarioType（media.metadata.scenarioType，FIRE/FALSE_ALARM，缺省 FIRE）
      * 在创建与合并两条路径都写入 incident.extra.scenarioType（后到覆盖，演示线空间上分离，
      * 实际不会互相覆盖），核验时据此派生证据。</p>
+     *
+     * <p>误报抑制（D8）：去重候选排除终态事件，误报判定后同点持续采集会裂出新 SUSPECTED 事件；
+     * 新建前先查 FALSE_ALARM 抑制窗口（{@link #FALSE_ALARM_SUPPRESS_SECONDS}）内的同点误报事件，
+     * 命中则检测挂接原事件留痕、不新建。</p>
      */
     @Transactional
     public IncidentAttachResult attachPointToIncident(FirePointEntity point, BigDecimal confidence,
@@ -204,38 +217,79 @@ public class FireIncidentService {
             log.debug("dedup hit: point {} merged into incident {} ({}m)",
                     point.getId(), incident.getIncidentNo(), Math.round(matchedDistance));
         } else {
-            merged = false;
-            incident = new FireIncidentEntity();
-            incident.setId(UUID.randomUUID());                          // id UUID PK（应用生成）
-            incident.setIncidentNo(nextIncidentNo(now));                // incident_no NOT NULL UNIQUE
-            incident.setTitle("无人机巡检发现疑似火情");                  // title
-            incident.setStatus("SUSPECTED");                            // status NOT NULL
-            incident.setLevel(confidence != null && confidence.doubleValue() >= T_CONFIRM
-                    ? "HIGH" : "MEDIUM");                               // level（priority 语义）
-            incident.setLatitude(lat);                                  // latitude
-            incident.setLongitude(lon);                                 // longitude
-            incident.setGeometry(point.getGeometry());                  // geometry
-            incident.setFirstDetectedAt(detectedAt);                    // first_detected_at
-            incident.setSourceUavId(point.getSourceUavId());            // source_uav_id
-            incident.setSourceDetectionId(point.getDetectionId());      // source_detection_id
-            incident.setFalseAlarm(false);                              // false_alarm
-            Map<String, Object> extra = new LinkedHashMap<>();
-            extra.put("detectionCount", 1);
-            extra.put("latestConfidence", confidence);
-            extra.put("maxConfidence", confidence);
-            extra.put("scenarioType", scenarioType);                    // D2：创建路径写入场景提示
-            incident.setExtra(extra);
-            recordStatusChange(incident, "SUSPECTED", now);             // D4：初始状态入历史
-            incident.setCreatedAt(now);                                 // created_at NOT NULL
-            incident.setUpdatedAt(now);                                 // updated_at NOT NULL
-            incident = incidentRepository.save(incident);
-            log.debug("dedup miss: new incident {} for point {}",
-                    incident.getIncidentNo(), point.getId());
+            // 误报抑制：FALSE_ALARM 终态不参与去重（终态被候选查询排除），误报判定后若仍在
+            // 同点持续采集，每个后续检测都会裂出新 SUSPECTED 事件（D8 彩排实测）。窗口内同点
+            // 检测挂接原误报事件留痕（fire_point.incident_id 回填），不再新建事件。
+            FireIncidentEntity suppressed = findFalseAlarmSuppression(lat, lon, dLat, dLon, detectedAt);
+            if (suppressed != null) {
+                merged = false;
+                incident = suppressed;
+                log.info("false-alarm suppression: point {} within dedup distance of FALSE_ALARM "
+                                + "incident {} (verdict within {}s), skip new incident",
+                        point.getId(), suppressed.getIncidentNo(), FALSE_ALARM_SUPPRESS_SECONDS);
+            } else {
+                merged = false;
+                incident = new FireIncidentEntity();
+                incident.setId(UUID.randomUUID());                      // id UUID PK（应用生成）
+                incident.setIncidentNo(nextIncidentNo(now));                // incident_no NOT NULL UNIQUE
+                incident.setTitle("无人机巡检发现疑似火情");                  // title
+                incident.setStatus("SUSPECTED");                            // status NOT NULL
+                incident.setLevel(confidence != null && confidence.doubleValue() >= T_CONFIRM
+                        ? "HIGH" : "MEDIUM");                               // level（priority 语义）
+                incident.setLatitude(lat);                                  // latitude
+                incident.setLongitude(lon);                                 // longitude
+                incident.setGeometry(point.getGeometry());                  // geometry
+                incident.setFirstDetectedAt(detectedAt);                    // first_detected_at
+                incident.setSourceUavId(point.getSourceUavId());            // source_uav_id
+                incident.setSourceDetectionId(point.getDetectionId());      // source_detection_id
+                incident.setFalseAlarm(false);                              // false_alarm
+                Map<String, Object> extra = new LinkedHashMap<>();
+                extra.put("detectionCount", 1);
+                extra.put("latestConfidence", confidence);
+                extra.put("maxConfidence", confidence);
+                extra.put("scenarioType", scenarioType);                    // D2：创建路径写入场景提示
+                incident.setExtra(extra);
+                recordStatusChange(incident, "SUSPECTED", now);             // D4：初始状态入历史
+                incident.setCreatedAt(now);                                 // created_at NOT NULL
+                incident.setUpdatedAt(now);                                 // updated_at NOT NULL
+                incident = incidentRepository.save(incident);
+                log.debug("dedup miss: new incident {} for point {}",
+                        incident.getIncidentNo(), point.getId());
+            }
         }
 
         point.setIncidentId(incident.getId());
         pointRepository.save(point);
         return new IncidentAttachResult(incident, merged);
+    }
+
+    /**
+     * 误报抑制命中查找：窗口内（FALSE_ALARM 事件的 updated_at 即判定落库时间），
+     * 经纬度矩形粗筛后 Haversine ≤去重距离的最近误报事件；未命中返回 null。
+     * 仅对 FALSE_ALARM 生效——RESOLVED/CLOSED 后同点复燃属新警情，不应抑制。
+     */
+    private FireIncidentEntity findFalseAlarmSuppression(double lat, double lon,
+                                                         double dLat, double dLon,
+                                                         Instant detectedAt) {
+        List<FireIncidentEntity> candidates = incidentRepository
+                .findByStatusAndUpdatedAtAfterAndLatitudeBetweenAndLongitudeBetween(
+                        "FALSE_ALARM",
+                        detectedAt.minus(Duration.ofSeconds(FALSE_ALARM_SUPPRESS_SECONDS)),
+                        lat - dLat, lat + dLat,
+                        lon - dLon, lon + dLon);
+        FireIncidentEntity nearest = null;
+        double nearestDistance = Double.MAX_VALUE;
+        for (FireIncidentEntity c : candidates) {
+            if (c.getLatitude() == null || c.getLongitude() == null) {
+                continue;
+            }
+            double d = GeoUtils.haversineMeters(lat, lon, c.getLatitude(), c.getLongitude());
+            if (d <= DEDUP_DISTANCE_M && d < nearestDistance) {
+                nearestDistance = d;
+                nearest = c;
+            }
+        }
+        return nearest;
     }
 
     // ---------------- 2. 列表 / 详情 ----------------

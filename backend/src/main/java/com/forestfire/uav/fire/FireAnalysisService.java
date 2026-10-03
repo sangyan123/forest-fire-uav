@@ -67,7 +67,7 @@ public class FireAnalysisService {
                                Double areaGrowthRate, String trend) {
     }
 
-    /** POST analysis 响应：{polygon:{radiusMeters,areaSquareMeters,polygon}, tracking:{...}, growthStep} */
+    /** POST analysis 响应：{polygon:{radiusMeters,areaSquareMeters,polygon}, tracking:{...}, growthStep}；growthStep 为本轮序号（1 基） */
     public record AnalysisResult(PolygonView polygon, TrackingView tracking, int growthStep) {
     }
 
@@ -98,6 +98,7 @@ public class FireAnalysisService {
                         "no fire point for incident: " + incidentId));
         double lat = center.getLatitude();
         double lon = center.getLongitude();
+        // 分割轮次索引（0 基）：= 本轮之前已完成轮数，供 AI 半径公式（首轮≈150m，每轮+90m）
         int growthStep = (int) polygonRepository.countByIncidentId(incidentId);
         Instant now = Instant.now();
 
@@ -141,10 +142,12 @@ public class FireAnalysisService {
                 incident.getIncidentNo(), growthStep, seg.radiusMeters(),
                 seg.areaSquareMeters(), trk.trend());
 
+        // 响应 growthStep 用 1 基（本轮序号 = 已有轮数 + 1）：前端 toast/轮次标签直接显示，
+        // 与 Scenario-05 编排路径口径统一（D8 修复：0 基曾使手动路径 toast 显示"第 0 轮"）
         return new AnalysisResult(
                 new PolygonView(seg.radiusMeters(), seg.areaSquareMeters(), toGeoJsonRing(seg.ring())),
                 toTrackingView(track),
-                growthStep);
+                growthStep + 1);
     }
 
     // ---------------- 查询 ----------------
