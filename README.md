@@ -4,9 +4,10 @@
 
 ## 当前状态
 
+- 阶段：**MVP 演示版完成**——D1~D5 开发验收、D6 预演、D7 浏览器彩排全部通过，火情闭环主链路（mock 模式）全程跑通；整体约完成四分之一
 - 设计基线：**V1.3 已冻结**（`docs/00-doc/active/`），01~11 号文档已按基线第 73 章完成回写同步
 - 机器可执行来源：enums / constants / baseline-metrics / openapi / UAV JSON Schema / DB Migration / Algorithm & Auth Config **全部建立并校验通过**
-- 阶段：**Phase 0 项目初始化**（基线第 23 章阶段表）；下一步 Phase 1 基础设施
+- 尚未开发（演示后工程化）：WebSocket（现为轮询）/ 认证鉴权 / Kafka 业务接入 / 真实算法模型 / 真机适配（DJI/MAVLink）/ 测试体系 / 监控栈，详见 [docs/HANDOVER.md](docs/HANDOVER.md)
 
 ## 目录速览
 
@@ -16,7 +17,7 @@ docs/api/           OpenAPI（API机器来源，owner=07号）
 docs/protocol/      UAV统一数据JSON Schema（协议机器来源，owner=05号）
 db/migration/       数据库迁移（Schema机器来源，owner=04号，PostgreSQL16+PostGIS）
 config/             算法/认证 运行时配置（镜像constants.yaml，禁止另创数值）
-backend|ai-service|uav-gateway|mock-uav|frontend   五大工程组件（Phase 1起填充）
+backend|ai-service|uav-gateway|mock-uav|frontend   五大工程组件（火情闭环主链路已实现，mock 模式）
 deploy/             DEV中间件栈（PostGIS/Redis/Kafka/MQTT/MinIO）
 .github/workflows/  CI（含基线配置校验job）
 ```
@@ -39,7 +40,10 @@ docker pull docker.m.daocloud.io/minio/minio:latest  && docker tag docker.m.daoc
 # 2. 启动（首次构建 backend/uav-gateway 两个 Maven 镜像约 5~15 分钟）
 docker compose up -d --build
 
-# 3. 验收：九容器全部 Up；数据库首次初始化自动执行 db/migration（34表+权限种子）
+# 3. 重置演示数据（清空历史事件+无人机满电），演示/开发前建议执行
+bash scripts/reset-demo.sh
+
+# 4. 验收：九容器全部 Up；数据库首次初始化自动执行 db/migration（34表+权限种子）
 docker compose ps
 ```
 
@@ -59,6 +63,8 @@ docker compose ps
 | 内容 | 位置 |
 | --- | --- |
 | 设计基线（唯一生效） | docs/00-doc/active/00_跨文档设计基线_V1.3.md |
+| **新人交接（仓库地图/三条链路/真假边界/已知坑）** | **docs/HANDOVER.md** |
+| 客户演示讲稿（5分钟剧本） | docs/demo/客户演示讲稿.md |
 | 变更与Issue登记 | docs/00-doc/change-log.md |
 | API 规范 | docs/api/openapi.yaml |
 | UAV 协议 Schema | docs/protocol/uav-json-schema/README.md |

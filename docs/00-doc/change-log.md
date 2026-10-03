@@ -42,6 +42,8 @@
 
 | 2026-09-28 | D5：断联防线与离线化演示 | ai-service无改动；backend新增DeviceOfflineScheduler（@EnableScheduling，每5秒扫描，device.offline-timeout-seconds:15，一条批量UPDATE置OFFLINE；/state与列表OFFLINE覆盖；恢复路径零改动靠ingest重映射）；mock-uav新增scenario-06断联序列（COMMUNICATION_LOST→静默→COMMUNICATION_RECOVERED→恢复，默认静默25s且MIN=25s——必须>平台15s阈值+5s扫描周期，集成时发现15s默认值导致平台来不及置离线已修正）、电量注入POST /simulator/uavs/{id}/battery（四级事件触发）、故障注入/failure（GPS_LOST等+RECOVER）；frontend切本地瓦片（frontend/public/tiles 363块，源Carto light_all——OSM官方源与国内镜像本机不可达，bbox钳制+透明占位+离线灰标+nginx同源代理/api//simulator/）、顶栏五场景按钮+scenario-05自动编排（无CONFIRMED事件则自动注入火情→等待确认→3s间隔两次analysis）、scenario-06监听（OFFLINE→警告toast→恢复→成功toast，40s兜底）；**D5端到端验收**：断联静默20s置OFFLINE→5s内自动恢复AIRBORNE、电量注入95恢复、未知uavId 40401、五按钮前端200、dist/tiles 363块随包发布 |
 
+| 2026-10-03 | README/演示讲稿过时口径更新 | README「当前状态」由停滞的 Phase 0 更新为实际进度（MVP 演示版完成 D1~D7、整体约四分之一、后置工程化项清单），目录速览改"火情闭环主链路已实现（mock 模式）"，文档索引补 HANDOVER.md/演示讲稿入口，快速开始补 reset-demo.sh 步骤；演示讲稿两处瓦片口径同步 10-02 落地现状——检查清单"瓦片来自 OpenStreetMap 需外网"与风险表"提前缓存离线瓦片"改为本地 898 块离线 Esri 卫星瓦片+远程垫底（断网可演示）。备注：09-28 D7补充3 之后至 10-02 的约15个提交（场景轮换点位/地图瓦片四连修等）尚未逐条登记，待补 |
+
 ------
 
 ## 二、未决 Issue（按基线第76章流程登记）
