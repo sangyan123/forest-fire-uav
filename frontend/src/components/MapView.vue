@@ -71,7 +71,9 @@ const DEFAULT_ZOOM = 15
 const BOUNDS_BY_ZOOM: Array<{ min: number; bounds: L.LatLngBounds }> = [
   { min: 13, bounds: L.latLngBounds([29.85, 113.85], [30.45, 114.45]) },
   { min: 14, bounds: L.latLngBounds([30.0, 114.0], [30.35, 114.3]) },
-  { min: 15, bounds: L.latLngBounds([30.09, 114.09], [30.17, 114.19]) }, // z15~17 共用
+  // 东界 114.17 必须留在磁盘瓦片覆盖内：z15 东缘 114.1800 / z16 114.1807 / z17 114.1812
+  // （旧值 114.19 超出约 900m，向东拖到底即现深蓝无瓦片区——D8 彩排实测复现）
+  { min: 15, bounds: L.latLngBounds([30.09, 114.09], [30.17, 114.17]) }, // z15~17 共用
 ]
 function boundsForZoom(z: number): L.LatLngBounds {
   let b = BOUNDS_BY_ZOOM[0].bounds
