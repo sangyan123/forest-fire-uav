@@ -57,10 +57,13 @@ patrol:
   schedule:
     # 定时巡逻计划（2026-10-05 demo 增补，默认值机器来源 constants.yaml#patrol_schedule）
     # 每天 start-time 自动起飞、巡逻 duration-hours 小时后自动返航降落（08:00+10h=18:00）；
+    # 禁期（封山期）启用后按 closure-* 独立窗口巡逻（默认 06:00+14h=20:00），日期范围经 REST 配置；
     # 时区 zone；班次为内存态，重启后回到本配置并自愈。开关（手动班次）经 /api/v1/patrol-schedule
     device-code: ${PATROL_DEVICE_CODE:UAV-001}
     start-time: ${PATROL_START_TIME:08:00}
     duration-hours: ${PATROL_DURATION_HOURS:10}
+    closure-start-time: ${PATROL_CLOSURE_START_TIME:06:00}
+    closure-duration-hours: ${PATROL_CLOSURE_DURATION_HOURS:14}
     zone: ${PATROL_ZONE:Asia/Shanghai}
 
 management:

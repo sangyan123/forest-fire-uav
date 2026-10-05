@@ -2,8 +2,8 @@
 # 森林防火无人机智能系统 — 参数唯一数值来源（constants.yaml）
 # =====================================================================
 # 归属:   00号基线 V1.3 第5章（docs/00-doc/ 机器可执行来源）
-# 版本:   constants-v1.3
-# 日期:   2026-09-27（v1.1: 2026-10-05 增补 extinguishing_ball 段；v1.2: 2026-10-05 增补 loudspeaker_broadcast 段；v1.3: 2026-10-05 增补 patrol_schedule 段，见 change-log）
+# 版本:   constants-v1.4
+# 日期:   2026-09-27（v1.1/v1.2/v1.3: 2026-10-05 增补 extinguishing_ball / loudspeaker_broadcast / patrol_schedule 段；v1.4: 2026-10-05 patrol_schedule 增禁期窗口参数，见 change-log）
 #
 # 定位:
 #   本文件只收录 00基线 V1.3 自身章节冻结的数值参数
@@ -21,7 +21,7 @@
 # =====================================================================
 
 meta:
-  file_version: constants-v1.3
+  file_version: constants-v1.4
   baseline: "00 跨文档设计基线与矛盾修订清单 V1.3（docs/00-doc/active/00_跨文档设计基线_V1.3.md）"
   created: 2026-09-27
   status: "V1 Engineering Baseline（工程基线，非科学结论）"
@@ -148,8 +148,11 @@ constants:
     baseline_chapter: "无（demo 增补，登记 change-log 2026-10-05）"
     start_time: "08:00"               # 每日自动起飞时刻（zone 时区）
     duration_hours: 10                # 巡逻时长（窗口结束=18:00 自动返航）
+    closure_start_time: "06:00"       # 禁期（封山期）每日自动起飞时刻（v1.4 增补）
+    closure_duration_hours: 14        # 禁期巡逻时长（06:00+14h=20:00，封山期人进不去、无人机加密巡）
     zone: "Asia/Shanghai"             # 计划时区（后端容器为 UTC，窗口计算按此时区）
     consumers: ["doc-03", "doc-05", "backend", "frontend"]
+    note: "禁期日期范围（startDate~endDate）为运行时状态，经 PUT /api/v1/patrol-schedule/closure 配置（内存态），不进本文件"
 
 # ---------------------------------------------------------------------
 # pointers：不属于本文件的数值参数去向（防止同一数字多处维护）

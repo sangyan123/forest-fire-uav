@@ -12,9 +12,11 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 定时巡逻端点：
  * <ul>
- *   <li>GET /api/v1/patrol-schedule — 查询计划（每日窗口）与当前班次</li>
+ *   <li>GET /api/v1/patrol-schedule — 查询计划（当天生效窗口：正常或禁期）与当前班次</li>
  *   <li>PUT /api/v1/patrol-schedule — 快捷指令开关：manual=true 立即起飞开手动班次，
  *       manual=false 结束手动班次（日常计划不受影响）</li>
+ *   <li>PUT /api/v1/patrol-schedule/closure — 禁期（封山期）配置：日期范围内按独立窗口巡逻，
+ *       到期自动切回正常计划</li>
  * </ul>
  */
 @RestController
@@ -39,5 +41,14 @@ public class PatrolScheduleController {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "manual is required (true/false)");
         }
         return ApiResponse.ok(patrolScheduleService.setManual(request.manual()));
+    }
+
+    @PutMapping("/patrol-schedule/closure")
+    public ApiResponse<PatrolScheduleService.PatrolScheduleView> closure(
+            @RequestBody PatrolScheduleService.ClosureRequest request) {
+        if (request == null || request.enabled() == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "enabled is required (true/false)");
+        }
+        return ApiResponse.ok(patrolScheduleService.setClosure(request));
     }
 }

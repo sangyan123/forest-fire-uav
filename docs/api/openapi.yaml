@@ -717,6 +717,42 @@ paths:
         '40001':
           $ref: '#/components/responses/BadRequest'
 
+  /api/v1/patrol-schedule/closure:
+    put:
+      tags: [Patrol]
+      summary: 禁期（封山期）巡逻配置
+      description: >-
+        森林限制进入期间（如防火封山期）启用禁期巡逻：日期范围内每天按独立窗口（默认 06:00+14h=20:00，
+        constants.yaml#patrol_schedule#closure_*）自动起飞与返航，到期自动切回正常计划。
+        enabled=true 且未给日期时缺省今天起 30 天；配置为内存态。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean, description: "禁期巡逻开关" }
+                startDate: { type: string, format: date, description: "禁期开始日期（缺省=今天）" }
+                endDate: { type: string, format: date, description: "禁期结束日期（缺省=开始+30天）" }
+                startTime: { type: string, example: "06:00", description: "禁期每日起飞时刻（缺省=配置值）" }
+                durationHours: { type: integer, example: 14, description: "禁期每日巡逻时长（缺省=配置值）" }
+      responses:
+        '200':
+          description: 更新后的定时巡逻计划视图（mode 反映今天是否处于禁期）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PatrolScheduleView'
+        '40001':
+          $ref: '#/components/responses/BadRequest'
+
   /api/v1/commands/{commandId}:
     get:
       tags: [Command]
@@ -1402,11 +1438,22 @@ components:
     # ---------- Patrol（定时巡逻，demo 增补 2026-10-05） ----------
     PatrolScheduleView:
       type: object
-      description: "定时巡逻计划视图（constants.yaml#patrol_schedule）；shift 为内存态班次，后端重启后清空并自愈"
+      description: "定时巡逻计划视图（constants.yaml#patrol_schedule）；startTime/durationHours 为今天实际生效的计划（正常或禁期）；shift/closure 为内存态，后端重启后清空并自愈"
       properties:
-        startTime: { type: string, example: "08:00", description: "每日自动起飞时刻（zone 时区）" }
-        durationHours: { type: integer, example: 10, description: "巡逻时长，窗口结束=自动返航" }
+        mode: { type: string, enum: [NORMAL, CLOSURE], description: "今天生效的巡逻模式" }
+        startTime: { type: string, example: "08:00", description: "今日自动起飞时刻（zone 时区；禁期日为禁期时刻）" }
+        durationHours: { type: integer, example: 10, description: "今日巡逻时长，窗口结束=自动返航" }
         zone: { type: string, example: Asia/Shanghai }
+        closure:
+          type: object
+          nullable: true
+          description: "禁期（封山期）配置；enabled 且日期命中时 mode=CLOSURE"
+          properties:
+            enabled: { type: boolean }
+            startDate: { type: string, format: date, nullable: true }
+            endDate: { type: string, format: date, nullable: true }
+            startTime: { type: string, example: "06:00" }
+            durationHours: { type: integer, example: 14 }
         shift:
           type: object
           nullable: true

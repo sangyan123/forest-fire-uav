@@ -1,4 +1,4 @@
-import type { CommandRecord, CommandType, Envelope, MissionRecord, PatrolScheduleView, UavState } from './types'
+import type { CommandRecord, CommandType, Envelope, MissionRecord, PatrolClosurePayload, PatrolScheduleView, UavState } from './types'
 
 // 默认同源相对路径，由 nginx（容器）或 vite proxy（本地 dev/preview）转发；
 // 不能写死 localhost，否则只有浏览器与 Docker 宿主同机时才能连上
@@ -214,6 +214,15 @@ export function updatePatrolSchedule(manual: boolean): Promise<PatrolScheduleVie
     method: 'PUT',
     headers: JSON_HEADERS,
     body: JSON.stringify({ manual }),
+  })
+}
+
+/** 禁期（封山期）配置：日期范围内按独立窗口巡逻，到期自动切回正常计划 */
+export function updatePatrolClosure(payload: PatrolClosurePayload): Promise<PatrolScheduleView> {
+  return request<PatrolScheduleView>('/api/v1/patrol-schedule/closure', {
+    method: 'PUT',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
   })
 }
 

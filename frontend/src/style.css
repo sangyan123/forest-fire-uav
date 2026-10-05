@@ -451,6 +451,43 @@ body {
   transform: translateX(18px);
 }
 
+/* 禁期巡逻配置行（日期范围 + 起飞时刻 + 时长 + 应用） */
+.closure-form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.closure-input {
+  flex: 1 1 96px;
+  min-width: 0;
+  padding: 4px 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.closure-input.closure-narrow {
+  flex: 0 1 68px;
+}
+
+.closure-sep {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.closure-apply {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 11px;
+  border-color: rgba(0, 229, 160, 0.45);
+  color: #00e5a0;
+}
+
 .cmd-btn {
   flex: 1;
   padding: 9px 0;

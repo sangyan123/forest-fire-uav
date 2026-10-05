@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import FireIncidentList from './FireIncidentList.vue'
-import type { FireIncident, PatrolScheduleView, TrackedCommand, UavState } from '../types'
+import type { FireIncident, PatrolClosurePayload, PatrolScheduleView, TrackedCommand, UavState } from '../types'
 import { zhCmdStatus, zhGpsStatus, zhUavStatus } from '../labels'
 
 const props = defineProps<{
@@ -15,10 +15,11 @@ const props = defineProps<{
   patrolSchedule: PatrolScheduleView | null
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'quick', commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME' | 'LOUDSPEAKER_BROADCAST'): void
   (e: 'select-incident', id: string): void
   (e: 'toggle-patrol', on: boolean): void
+  (e: 'toggle-closure', payload: PatrolClosurePayload): void
 }>()
 
 const battery = computed<number | null>(() => {
@@ -51,22 +52,81 @@ const relTime = computed<string>(() => {
 
 /* ---------------- 定时巡逻（快捷指令内开关） ---------------- */
 
-const patrolOn = computed(() => props.patrolSchedule?.shift?.origin === 'MANUAL')
+/** 开关 = 是否有班次在飞（手动/计划/禁期计划任一）；关闭即返航 */
+const patrolOn = computed(() => props.patrolSchedule?.shift != null)
 
 function patrolChecked(e: Event): boolean {
   return (e.target as HTMLInputElement).checked
 }
 
+/* ---------------- 禁期巡逻（封山期加强窗口） ---------------- */
+
+const cEnabled = computed(() => props.patrolSchedule?.closure?.enabled ?? false)
+const cStart = ref('')
+const cEnd = ref('')
+const cTime = ref('06:00')
+const cHours = ref(14)
+/** 用户手动改过表单后，10s 轮询不再回填覆盖 */
+const cDirty = ref(false)
+
+watch(
+  () => props.patrolSchedule?.closure,
+  (c) => {
+    if (!c || cDirty.value) return
+    cStart.value = c.startDate ?? ''
+    cEnd.value = c.endDate ?? ''
+    cTime.value = c.startTime || '06:00'
+    cHours.value = c.durationHours || 14
+  },
+  { immediate: true },
+)
+
+const closureStatusText = computed<string>(() => {
+  const c = props.patrolSchedule?.closure
+  if (!c) return '—'
+  const range = c.startDate && c.endDate ? `${c.startDate} ~ ${c.endDate}` : '未配置日期'
+  const startText = (c.startTime || '').slice(0, 5)
+  if (c.enabled) {
+    const active = props.patrolSchedule?.mode === 'CLOSURE'
+    return `${range} · 每天 ${startText} 起飞巡逻 ${c.durationHours} 小时${active ? '（禁期生效中）' : '（未到禁期日期）'}`
+  }
+  return '未启用 · 按正常巡逻计划运行'
+})
+
+function closurePayload(enabled: boolean): PatrolClosurePayload {
+  return {
+    enabled,
+    startDate: cStart.value || undefined,
+    endDate: cEnd.value || undefined,
+    startTime: cTime.value || undefined,
+    durationHours: Number(cHours.value) || undefined,
+  }
+}
+
+function onClosureToggle(e: Event): void {
+  cDirty.value = false
+  emit('toggle-closure', closurePayload(patrolChecked(e)))
+}
+
+function applyClosure(): void {
+  cDirty.value = false
+  emit('toggle-closure', closurePayload(true))
+}
+
 const patrolStatusText = computed<string>(() => {
   const ps = props.patrolSchedule
   if (!ps) return '—'
+  const planLabel = ps.mode === 'CLOSURE' ? '禁期计划' : '正常计划'
   const s = ps.shift
   if (s) {
     const endText = new Date(s.endAt).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })
     if (s.returning) return `🛩️ 班次结束返航中 · 到家后自动降落充电`
-    return `🛩️ 巡逻中（${s.origin === 'MANUAL' ? '手动' : '计划'}班次）· ${endText} 自动返航`
+    const originLabel = s.origin === 'MANUAL'
+      ? '手动班次'
+      : (ps.mode === 'CLOSURE' ? '禁期计划班次' : '计划班次')
+    return `🛩️ 巡逻中（${originLabel}）· ${endText} 自动返航`
   }
-  return `⏱️ 待命 · 每天 ${ps.startTime} 自动起飞巡逻 ${ps.durationHours} 小时`
+  return `⏱️ 待命 · ${planLabel}：每天 ${ps.startTime} 起飞巡逻 ${ps.durationHours} 小时`
 })
 
 function chipClass(status: string): string {
@@ -145,6 +205,28 @@ function timeText(ts: number): string {
           />
           <span class="patrol-slider"></span>
         </label>
+      </div>
+      <div class="patrol-row">
+        <div class="patrol-text">
+          <b>禁期巡逻</b>
+          <small class="patrol-status">{{ closureStatusText }}</small>
+        </div>
+        <label class="patrol-switch">
+          <input
+            type="checkbox"
+            :checked="cEnabled"
+            @change="onClosureToggle($event)"
+          />
+          <span class="patrol-slider"></span>
+        </label>
+      </div>
+      <div v-if="cEnabled" class="closure-form">
+        <input class="closure-input" type="date" v-model="cStart" @input="cDirty = true" title="禁期开始日期" />
+        <span class="closure-sep">~</span>
+        <input class="closure-input" type="date" v-model="cEnd" @input="cDirty = true" title="禁期结束日期" />
+        <input class="closure-input closure-narrow" type="time" v-model="cTime" @input="cDirty = true" title="禁期每日起飞时刻" />
+        <input class="closure-input closure-narrow" type="number" min="1" max="23" v-model="cHours" @input="cDirty = true" title="禁期每日巡逻时长（小时）" />
+        <button class="cmd-btn closure-apply" @click="applyClosure">应用</button>
       </div>
       <p class="hint">提示：在左侧地图上点击任意位置可下发 GOTO 指令；巡检发现可疑人员可随时喊话警告。</p>
     </section>

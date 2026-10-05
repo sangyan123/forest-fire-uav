@@ -19,6 +19,7 @@ import {
   postIncidentVerification,
   startMission,
   startScenario,
+  updatePatrolClosure,
   updatePatrolSchedule,
 } from './api'
 import {
@@ -43,6 +44,7 @@ import type {
   FireIncident,
   FirePolygonShape,
   GotoPayload,
+  PatrolClosurePayload,
   PatrolScheduleView,
   StatusPoint,
   TrackedCommand,
@@ -891,27 +893,52 @@ async function pollPatrolSchedule(): Promise<void> {
   }
 }
 
-/** 快捷指令「定时巡逻」开关：开=立即起飞开手动班次；关=结束手动班次（日常计划不变） */
+/** 快捷指令「定时巡逻」开关（飞不飞的唯一控制）：开=立即起飞开班；关=结束班次立即返航。
+ *  每日计划到点自动起飞时开关自动亮起（shift 存在即亮）。 */
 async function onTogglePatrol(on: boolean): Promise<void> {
   const prev = patrolSchedule.value
   try {
     const v = await updatePatrolSchedule(on)
     patrolSchedule.value = v
     if (on) {
-      if (v.shift?.origin === 'MANUAL') {
-        pushToast('success', prev?.shift?.origin === 'MANUAL'
-          ? '定时巡逻已处于开启状态（手动班次进行中）'
-          : '🛩️ 定时巡逻已开启：无人机立即起飞，飞到 18:00 自动返航降落')
+      if (v.shift) {
+        if (prev?.shift) {
+          pushToast('info', `🛩️ 已在巡逻中（${v.shift.origin === 'MANUAL' ? '手动班次' : '计划班次'}），${fmtHHmm(v.shift.endAt)} 自动返航`)
+        } else {
+          pushToast('success', `🛩️ 定时巡逻已开启：无人机立即起飞，飞到 ${fmtHHmm(v.shift.endAt)} 自动返航降落`)
+        }
       } else {
-        pushToast('info', '🛩️ 已在巡逻班次中，今日按计划自动返航')
+        pushToast('info', '定时巡逻已开启，无人机未就绪')
       }
     } else {
-      pushToast('info', '⏹️ 定时巡逻已关闭：每天 08:00 自动起飞巡逻 10 小时' +
-        (prev?.shift?.origin === 'MANUAL' ? '（手动班次已结束，无人机返航中）' : ''))
+      pushToast('info', '⏹️ 定时巡逻已关闭：班次结束，无人机返航归巢' +
+        (v.mode === 'CLOSURE' ? '（禁期计划仍生效，明日起按禁期窗口自动起飞）' : '（每天 08:00 自动起飞巡逻 10 小时）'))
     }
   } catch (e) {
     pushToast('error', `定时巡逻开关失败：${e instanceof Error ? e.message : '未知错误'}`)
   }
+}
+
+/** 禁期巡逻开关：只选择生效计划（正常/禁期），不控制无人机起飞；到期自动切回正常计划 */
+async function onToggleClosure(p: PatrolClosurePayload): Promise<void> {
+  try {
+    const v = await updatePatrolClosure(p)
+    patrolSchedule.value = v
+    const c = v.closure
+    if (p.enabled && c) {
+      pushToast('success', `🚫 禁期计划已${p.enabled ? '启用' : '应用'}：${c.startDate} ~ ${c.endDate}，每天 ${(c.startTime || '').slice(0, 5)} 起飞巡逻 ${c.durationHours} 小时` +
+        (v.mode === 'CLOSURE' ? '（今日为禁期日，到点自动起飞）' : '（未到禁期日期，仍按正常计划 08:00~18:00）'))
+    } else {
+      pushToast('info', '禁期计划已关闭：恢复正常计划（每天 08:00 起飞、18:00 返航）')
+    }
+  } catch (e) {
+    pushToast('error', `禁期巡逻配置失败：${e instanceof Error ? e.message : '未知错误'}`)
+  }
+}
+
+/** ISO 时间转 HH:mm（本地时区显示） */
+function fmtHHmm(iso: string): string {
+  return new Date(iso).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })
 }
 
 onMounted(() => {
@@ -1010,6 +1037,7 @@ onUnmounted(() => {
         @quick="onQuick"
         @select-incident="onSelectFromList"
         @toggle-patrol="onTogglePatrol"
+        @toggle-closure="onToggleClosure"
       />
     </main>
     <Toasts />

@@ -120,11 +120,31 @@ export interface MissionRecord {
   [key: string]: unknown
 }
 
-/** 定时巡逻视图：每日窗口（startTime~startTime+durationHours）+ 当前班次（内存态） */
+/** 禁期（封山期）配置：enabled 且日期命中时，当天按禁期窗口巡逻 */
+export interface PatrolClosure {
+  enabled: boolean
+  startDate: string | null   // YYYY-MM-DD
+  endDate: string | null
+  startTime: string          // HH:mm
+  durationHours: number
+}
+
+/** 禁期配置请求体（开关/应用共用） */
+export interface PatrolClosurePayload {
+  enabled: boolean
+  startDate?: string
+  endDate?: string
+  startTime?: string
+  durationHours?: number
+}
+
+/** 定时巡逻视图：mode/startTime/durationHours 为"今天实际生效"的计划（正常或禁期） */
 export interface PatrolScheduleView {
+  mode: 'NORMAL' | 'CLOSURE'
   startTime: string
   durationHours: number
   zone: string
+  closure: PatrolClosure | null
   shift: {
     origin: 'MANUAL' | 'SCHEDULED'
     startedAt: string
