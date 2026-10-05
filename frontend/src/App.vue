@@ -736,7 +736,7 @@ onUnmounted(() => {
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark"></span>
-        森林防火无人机智能系统 <small>Demo · Vue 3 + Leaflet</small>
+        森林防火无人机智能系统
       </div>
       <div class="topbar-right">
         <button
