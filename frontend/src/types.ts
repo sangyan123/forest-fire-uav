@@ -21,6 +21,7 @@ export type CommandType =
   | 'RETURN_HOME'
   | 'PAUSE'
   | 'RESUME'
+  | 'DROP_EXTINGUISHING_BALL'
 
 export interface CommandRecord {
   id?: string | number

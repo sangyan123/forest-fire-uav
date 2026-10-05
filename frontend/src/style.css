@@ -749,6 +749,105 @@ body {
   }
 }
 
+/* ---------- 投放灭火弹命中特效（一次性，约 2s 自消） ---------- */
+/* 挂在火点坐标的 divIcon：橙红爆闪核心 + 爆炸冲击环 + 白色灭火剂雾圈 */
+.bomb-div-icon {
+  background: transparent;
+  border: none;
+}
+
+.bomb-blast {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  pointer-events: none;
+}
+
+.bomb-blast .bb-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0.4);
+  font-size: 26px;
+  line-height: 1;
+  animation: bomb-core 1.8s ease-out 1 forwards;
+}
+
+.bomb-blast .bb-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  border: 3px solid #fb923c;
+  border-radius: 50%;
+  animation: bomb-ring 1.1s ease-out 1 forwards;
+}
+
+.bomb-blast .bb-mist {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0%, rgba(226, 232, 240, 0.55) 55%, rgba(226, 232, 240, 0) 75%);
+  animation: bomb-mist 1.9s ease-out 1 forwards;
+}
+
+@keyframes bomb-core {
+  0% {
+    transform: translate(-50%, -50%) scale(0.4);
+    filter: brightness(2.2);
+  }
+
+  22% {
+    transform: translate(-50%, -50%) scale(1.5);
+    filter: brightness(2) drop-shadow(0 0 14px #f97316);
+  }
+
+  70% {
+    transform: translate(-50%, -50%) scale(1.1);
+    filter: brightness(1.2);
+  }
+
+  100% {
+    transform: translate(-50%, -50%) scale(0.9);
+    opacity: 0;
+  }
+}
+
+@keyframes bomb-ring {
+  0% {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+@keyframes bomb-mist {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+
+  25% {
+    transform: scale(1.2);
+    opacity: 0.95;
+  }
+
+  100% {
+    transform: scale(3.4);
+    opacity: 0;
+  }
+}
+
 /* ---------- 火情事件卡片（地图浮层） ---------- */
 .incident-card {
   position: absolute;

@@ -190,9 +190,17 @@ public class CommandService {
                             + " (allowed: " + DEVICE_COMMAND_STATUSES + ")");
         }
 
-        UavCommandEntity cmd = commandRepository.findById(commandId)
+        UavCommandEntity cmd = commandRepository.findByIdForUpdate(commandId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PATH_NOT_FOUND,
                         "command not found: " + commandId));
+
+        // 终态守卫：已终态的命令不再接受任何回写（含重复终态与迟到的 EXECUTING/RECEIVED），
+        // 防止并发回调乱序把终态覆盖回非终态（命令永久卡在 EXECUTING）
+        if (TERMINAL_STATUSES.contains(cmd.getStatus())) {
+            log.info("command {} already terminal ({}), ignore status update to {}",
+                    commandId, cmd.getStatus(), status);
+            return toView(cmd, null, null);
+        }
 
         Instant now = Instant.now();
         cmd.setStatus(status);

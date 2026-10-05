@@ -40,7 +40,7 @@ const props = defineProps<{
   /** 已派单事件（incidentId -> missionId） */
   dispatched: Record<string, string>
   /** 当前进行中的卡片动作 */
-  busy: { incidentId: string; action: 'verify' | 'dispatch' | 'analyze' } | null
+  busy: { incidentId: string; action: 'verify' | 'dispatch' | 'analyze' | 'bomb' } | null
   /** 状态时间线（incidentId -> 状态变化序列） */
   timelines: Record<string, StatusPoint[]>
   /** 选中事件的多边形历史（升序，扩散年轮） */
@@ -51,6 +51,10 @@ const props = defineProps<{
   analysisPulse: number
   /** 已完成分析轮次（incidentId -> 轮次） */
   analysisRounds: Record<string, number>
+  /** 机载灭火弹余量（模拟器 /simulator/status 透出；null=未知，不显示数字） */
+  ballsRemaining: number | null
+  /** 每次投弹成功自增对象，触发火点爆炸/白雾特效 */
+  bombBlast: { incidentId: string; seq: number } | null
 }>()
 
 const emit = defineEmits<{
@@ -59,6 +63,7 @@ const emit = defineEmits<{
   (e: 'verify', id: string): void
   (e: 'dispatch', id: string): void
   (e: 'analyze', id: string): void
+  (e: 'drop-bomb', id: string): void
   (e: 'status-change', id: string, status: string): void
   (e: 'close-card'): void
 }>()
@@ -135,6 +140,25 @@ const cardCanDispatch = computed(
   () => !['FALSE_ALARM', 'RESOLVED', 'CLOSED'].includes(cardStatus.value),
 )
 const cardIsFalseAlarm = computed(() => isFalseAlarmDemo(cardIncident.value))
+
+/* ---------------- 投放灭火弹（卡片） ---------------- */
+
+const cardBusyBomb = computed(
+  () => props.busy?.action === 'bomb' && props.busy.incidentId === openCardId.value,
+)
+/** 投弹仅对已确认火情有意义（CONFIRMED/TRACKING/PROCESSING；enums.yaml IncidentStatus 旁路） */
+const cardCanBomb = computed(() => ['CONFIRMED', 'TRACKING', 'PROCESSING'].includes(cardStatus.value))
+const cardBallsOut = computed(() => props.ballsRemaining !== null && props.ballsRemaining <= 0)
+const cardBombLabel = computed(() =>
+  props.ballsRemaining === null ? '🧯 投放灭火弹' : `🧯 投放灭火弹 · 剩 ${props.ballsRemaining} 发`,
+)
+const cardBombHint = computed(() => {
+  if (cardBallsOut.value) return '灭火弹已耗尽（reset-demo 恢复）'
+  if (cardCanBomb.value) return ''
+  if (cardStatus.value === 'FALSE_ALARM') return '误报事件无需投放'
+  if (cardStatus.value === 'CLOSED' || cardStatus.value === 'RESOLVED') return '事件已结束'
+  return '确认火情后可投放'
+})
 const cardTimeline = computed<StatusPoint[]>(() => {
   const inc = cardIncident.value
   if (!inc) return []
@@ -404,6 +428,33 @@ watch(
   },
 )
 
+/** 投弹命中特效：火点坐标挂一次性爆炸+白雾 marker（CSS 驱动，约 2s 自消），火点同步闪烁一次 */
+watch(
+  () => props.bombBlast,
+  (blast) => {
+    if (!map || !blast) return
+    const inc = props.incidents.find((i) => i.id === blast.incidentId)
+    if (!inc || inc.latitude === null || inc.longitude === null) return
+    const icon = L.divIcon({
+      className: 'bomb-div-icon',
+      html:
+        '<div class="bomb-blast">' +
+        '<span class="bb-ring"></span><span class="bb-mist"></span><span class="bb-core">💥</span>' +
+        '</div>',
+      iconSize: [72, 72],
+      iconAnchor: [36, 36],
+    })
+    const m = L.marker([inc.latitude, inc.longitude], {
+      icon,
+      interactive: false,
+      zIndexOffset: 900,
+    }).addTo(map)
+    window.setTimeout(() => m.remove(), 2000)
+    const fm = fireMarkers.get(blast.incidentId)
+    if (fm) triggerFlash(fm)
+  },
+)
+
 function onMapClick(e: L.LeafletMouseEvent): void {
   if (!map) return
   const c = clampPoint(e.containerPoint, 236, 236)
@@ -595,6 +646,16 @@ onUnmounted(() => {
           }}
         </button>
         <span v-if="analysisHint" class="ic-analysis-hint">{{ analysisHint }}</span>
+      </div>
+      <div class="ic-analysis-row">
+        <button
+          class="btn ic-btn ic-analyze-btn"
+          :disabled="!cardCanBomb || cardBusyBomb || cardBallsOut || cardIncident.latitude === null"
+          @click="emit('drop-bomb', cardIncident.id)"
+        >
+          {{ cardBusyBomb ? '投放中…' : cardBallsOut ? '灭火弹已耗尽' : cardCanBomb ? cardBombLabel : '不可投放' }}
+        </button>
+        <span v-if="cardBombHint" class="ic-analysis-hint">{{ cardBombHint }}</span>
       </div>
       <div class="ic-status-row">
         <select v-model="statusPick" class="ic-select" :disabled="cardNexts.length === 0" @change="onStatusSelect">

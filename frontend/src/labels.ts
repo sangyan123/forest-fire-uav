@@ -91,6 +91,7 @@ export const CMD_TYPE_ZH: Record<string, string> = {
   RETURN_HOME: '一键返航',
   PAUSE: '暂停任务',
   RESUME: '恢复任务',
+  DROP_EXTINGUISHING_BALL: '投放灭火弹',
 }
 
 export function zhCmdType(s?: string | null): string {

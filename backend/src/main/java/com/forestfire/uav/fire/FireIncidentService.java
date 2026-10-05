@@ -74,7 +74,7 @@ public class FireIncidentService {
     private static final Map<String, Set<String>> TRANSITIONS = Map.of(
             "SUSPECTED", Set.of("VERIFYING"),
             "VERIFYING", Set.of("CONFIRMED", "FALSE_ALARM"),
-            "CONFIRMED", Set.of("TRACKING"),
+            "CONFIRMED", Set.of("TRACKING", "PROCESSING"),
             "TRACKING", Set.of("PROCESSING"),
             "PROCESSING", Set.of("RESOLVED"),
             "RESOLVED", Set.of("CLOSED"),

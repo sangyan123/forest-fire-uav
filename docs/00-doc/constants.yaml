@@ -2,8 +2,8 @@
 # 森林防火无人机智能系统 — 参数唯一数值来源（constants.yaml）
 # =====================================================================
 # 归属:   00号基线 V1.3 第5章（docs/00-doc/ 机器可执行来源）
-# 版本:   constants-v1.0
-# 日期:   2026-09-27
+# 版本:   constants-v1.1
+# 日期:   2026-09-27（v1.1: 2026-10-05 增补 extinguishing_ball 段，见 change-log）
 #
 # 定位:
 #   本文件只收录 00基线 V1.3 自身章节冻结的数值参数
@@ -21,7 +21,7 @@
 # =====================================================================
 
 meta:
-  file_version: constants-v1.0
+  file_version: constants-v1.1
   baseline: "00 跨文档设计基线与矛盾修订清单 V1.3（docs/00-doc/active/00_跨文档设计基线_V1.3.md）"
   created: 2026-09-27
   status: "V1 Engineering Baseline（工程基线，非科学结论）"
@@ -112,6 +112,18 @@ constants:
     access_token_minutes: 30
     refresh_token_days: 7
     consumers: ["doc-07", "backend"]
+
+  # -------------------------------------------------------------------
+  # 6. 灭火弹投放参数（2026-10-05 demo 增补，无基线章节）
+  #    来源: 用户产品决策（投放灭火弹功能），随 CommandType#DROP_EXTINGUISHING_BALL
+  #    配套建立；真实投放器参数须待 Phase 9A 真机适配时按第32章实验协议重定。
+  #    镜像目标: mock-uav/app/simulator.py（EXTINGUISHING_BALL_* 常量，注释回链本段）
+  # -------------------------------------------------------------------
+  extinguishing_ball:
+    baseline_chapter: "无（demo 增补，登记 change-log 2026-10-05）"
+    capacity: 3                       # 机载灭火弹挂载数量（弹药耗尽后命令 FAILED）
+    drop_max_radius_m: 150            # 投放安全半径：无人机与目标点距离超限则命令 FAILED
+    consumers: ["doc-03", "doc-05", "doc-09", "mock-uav", "backend", "frontend"]
 
 # ---------------------------------------------------------------------
 # pointers：不属于本文件的数值参数去向（防止同一数字多处维护）

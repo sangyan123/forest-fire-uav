@@ -88,6 +88,13 @@ FIRE_ARRIVAL_RADIUS_M = 10.0  # < 10 m -> arrived, capture starts
 MEDIA_CAPTURE_INTERVAL_TICKS = 2  # one UAV_MEDIA every 2 s (1 Hz tick)
 RGB_IMAGES_PER_THERMAL = 4  # every 4 RGB images insert 1 THERMAL_IMAGE
 
+# 灭火弹挂载（镜像 docs/00-doc/constants.yaml#extinguishing_ball，2026-10-05 demo 增补；
+# 真实投放器参数待 Phase 9A 按基线第32章实验协议重定）：
+# capacity 机载弹药数（耗尽后 DROP_EXTINGUISHING_BALL 命令 FAILED）、
+# drop_max_radius_m 投放安全半径（与目标点距离超限即 FAILED）。
+EXTINGUISHING_BALL_CAPACITY = 3
+EXTINGUISHING_BALL_DROP_MAX_RADIUS_M = 150.0
+
 # Demo verdict lines: FALSE_ALARM is the "false alarm" demo run. Both lines fly and capture
 # identically; only media.metadata.scenarioType (consumed by the backend demo) differs.
 SCENARIO_VERDICTS = ("CONFIRMED", "FALSE_ALARM")
@@ -205,6 +212,7 @@ class Simulator:
         self._fire_preset_index = 0  # 起火点预设轮换指针（每次场景启动+1，取模复位）
         self._rgb_since_thermal = 0
         self._media_count = 0
+        self._balls_remaining = EXTINGUISHING_BALL_CAPACITY  # 灭火弹余量（constants.yaml#extinguishing_ball）
 
         # scenario-06 comms silence (UAV 断联): while silent, no MQTT message is published
         self._comms_silent = False
@@ -572,9 +580,49 @@ class Simulator:
             media_type = "THERMAL_IMAGE" if command_type == "CAPTURE_THERMAL" else "RGB_IMAGE"
             media_id = self._publish_media(media_type)
             self._publish_result(command_id, "SUCCESS", {"mediaId": media_id})
+        elif command_type == "DROP_EXTINGUISHING_BALL":
+            self._handle_drop_ball(command_id, payload)
         else:
             log.warning("Unknown commandType %s (commandId=%s)", command_type, command_id)
             self._publish_result(command_id, "FAILED", {"message": f"unknown commandType: {command_type}"})
+
+    def _handle_drop_ball(self, command_id: str, payload: dict) -> None:
+        """DROP_EXTINGUISHING_BALL（enums.yaml#CommandType 第10项，constants.yaml#extinguishing_ball）。
+
+        机载安全校验按序：① 弹药余量 >0；② 与 payload 目标点距离 ≤ drop_max_radius_m。
+        任一不满足即 FAILED（附原因，前端 toast 引导）；合法投放扣减余量并回 SUCCESS
+        （result 带 remaining 供前端联动事件状态），最后一发投完自动 stop_fire_scenario
+        恢复航线巡逻（处置完成自动归队）。
+        """
+        if self._balls_remaining <= 0:
+            self._publish_result(command_id, "FAILED", {"message": "灭火弹已耗尽，无法投放"})
+            return
+        try:
+            target_lat = float(payload["latitude"])
+            target_lon = float(payload["longitude"])
+        except (KeyError, TypeError, ValueError):
+            self._publish_result(command_id, "FAILED",
+                                 {"message": "payload 缺少 latitude/longitude 目标点"})
+            return
+        distance = _distance_m(self._latitude, self._longitude, target_lat, target_lon)
+        if distance > EXTINGUISHING_BALL_DROP_MAX_RADIUS_M:
+            self._publish_result(command_id, "FAILED", {
+                "message": (f"距目标点 {distance:.0f}m，超出投放半径 "
+                            f"{EXTINGUISHING_BALL_DROP_MAX_RADIUS_M:.0f}m，请先派单待无人机到位"),
+            })
+            return
+        self._balls_remaining -= 1
+        remaining = self._balls_remaining
+        incident_id = str(payload.get("incidentId") or "")
+        log.info("Extinguishing ball dropped: incident=%s target=(%.6f, %.6f) distance=%.0fm remaining=%d",
+                 incident_id, target_lat, target_lon, distance, remaining)
+        if remaining == 0:
+            self.stop_fire_scenario()
+        self._publish_result(command_id, "SUCCESS", {
+            "incidentId": incident_id,
+            "remaining": remaining,
+            "capacity": EXTINGUISHING_BALL_CAPACITY,
+        })
 
     def _publish_result(self, command_id: str, status: str, result: dict) -> None:
         self._sequence += 1
@@ -985,6 +1033,12 @@ class Simulator:
                 ),
                 "capturing": self._fire_scenario["capturing"],
                 "verdict": self._fire_scenario["verdict"],
+            },
+            "payload": {
+                "extinguishingBall": {
+                    "remaining": self._balls_remaining,
+                    "capacity": EXTINGUISHING_BALL_CAPACITY,
+                },
             },
             "sequence": self._sequence,
         }

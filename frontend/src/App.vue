@@ -35,6 +35,7 @@ import {
 import { TERMINAL_CMD_STATUSES, zhCmdStatus, zhCmdType } from './labels'
 import { pushToast } from './toast'
 import type {
+  CommandRecord,
   CommandType,
   FireAnalysis,
   FireIncident,
@@ -77,9 +78,14 @@ const focus = ref<{ id: string; seq: number } | null>(null)
 let focusSeq = 0
 const verifications = ref<Record<string, VerificationResult>>({})
 const dispatched = ref<Record<string, string>>({})
-const busy = ref<{ incidentId: string; action: 'verify' | 'dispatch' | 'analyze' } | null>(null)
+const busy = ref<{ incidentId: string; action: 'verify' | 'dispatch' | 'analyze' | 'bomb' } | null>(null)
 /** 状态时间线（事件 id -> 已知状态变化序列；后端无历史字段时为会话内记录） */
 const timelines = ref<Record<string, StatusPoint[]>>({})
+
+/* 投放灭火弹（DROP_EXTINGUISHING_BALL）：弹药余量来自模拟器 2s 轮询；投弹成功脉冲驱动地图特效 */
+const ballsRemaining = ref<number | null>(null)
+const bombBlast = ref<{ incidentId: string; seq: number } | null>(null)
+let bombSeq = 0
 
 /* 火场分析（F05/F06）：仅作用于当前选中事件 */
 const polygons = ref<FirePolygonShape[]>([])
@@ -452,11 +458,23 @@ async function runCommsLossDemo(): Promise<void> {
 async function pollSimulatorStatus(): Promise<void> {
   try {
     const raw = await getSimulatorStatus()
+    ballsRemaining.value = parseBallRemaining(raw, ballsRemaining.value)
     if (scenarioPending.value !== null) return
     currentScenarioId.value = parseSimulatorStatus(raw)
   } catch {
     // 模拟器未就绪时保留本地状态
   }
+}
+
+/** 宽松解析模拟器状态里的灭火弹余量（payload.extinguishingBall.remaining） */
+function parseBallRemaining(raw: unknown, fallback: number | null): number | null {
+  if (typeof raw !== 'object' || raw === null) return fallback
+  const payload = (raw as Record<string, unknown>).payload
+  if (typeof payload !== 'object' || payload === null) return fallback
+  const ball = (payload as Record<string, unknown>).extinguishingBall
+  if (typeof ball !== 'object' || ball === null) return fallback
+  const n = Number((ball as Record<string, unknown>).remaining)
+  return Number.isFinite(n) ? n : fallback
 }
 
 /* ---------------- 事件卡片动作 ---------------- */
@@ -601,6 +619,104 @@ async function onAnalyze(id: string): Promise<void> {
   }
 }
 
+/* ---------------- 投放灭火弹（DROP_EXTINGUISHING_BALL） ---------------- */
+
+/** 命令记录里宽松取 result.deviceResponse（mock-uav 投弹回执所在） */
+function bombResultOf(rec: CommandRecord): Record<string, unknown> {
+  const raw = rec as Record<string, unknown>
+  const result = raw.result
+  if (typeof result !== 'object' || result === null) return {}
+  const r = result as Record<string, unknown>
+  const dr = r.deviceResponse
+  return typeof dr === 'object' && dr !== null ? (dr as Record<string, unknown>) : r
+}
+
+/** 投弹失败原因：优先设备回执 message，其次后端 errorMessage */
+function bombFailMessage(rec: CommandRecord): string {
+  const raw = rec as Record<string, unknown>
+  const candidates: unknown[] = [bombResultOf(rec).message, raw.errorMessage, raw.message]
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c
+  }
+  return '无人机未接受投放指令'
+}
+
+async function onDropBomb(id: string): Promise<void> {
+  if (busy.value) return
+  const inc = incidents.value.find((i) => i.id === id)
+  if (!inc || inc.latitude === null || inc.longitude === null) {
+    pushToast('error', '该事件缺少火点坐标，无法投放')
+    return
+  }
+  busy.value = { incidentId: id, action: 'bomb' }
+  try {
+    const rec = await postCommand(DEVICE_ID, {
+      commandType: 'DROP_EXTINGUISHING_BALL',
+      params: { latitude: inc.latitude, longitude: inc.longitude, incidentId: id },
+    })
+    const cid = rec.commandId ?? rec.id
+    if (cid === undefined || cid === null || String(cid) === '') {
+      pushToast('error', '指令下发成功但后端未返回命令 ID，无法跟踪投放结果')
+      return
+    }
+    pushToast('info', '投放指令已下发，等待无人机执行投放')
+    // silent：成功/失败提示由 onTerminal 按设备回执定制（含安全校验拒绝原因）
+    track(String(cid), `投放灭火弹 → ${inc.incidentNo}`, String(rec.status ?? 'CREATED').toUpperCase(), {
+      silent: true,
+      onTerminal: (final) => onBombTerminal(id, final),
+    })
+  } catch (e) {
+    pushToast('error', `投放失败：${e instanceof Error ? e.message : '未知错误'}`)
+  } finally {
+    busy.value = null
+  }
+}
+
+/** 投弹命令终态：成功→爆炸特效+事件状态推进（首发 PROCESSING / 打完 RESOLVED）；失败→设备回执原因 */
+async function onBombTerminal(id: string, rec: CommandRecord): Promise<void> {
+  void pollIncidents()
+  const status = String(rec.status ?? '').toUpperCase()
+  if (status !== 'SUCCESS' && status !== 'SUCCEEDED') {
+    pushToast('error', `投放未执行：${bombFailMessage(rec)}`)
+    return
+  }
+  bombBlast.value = { incidentId: id, seq: ++bombSeq }
+  // 余量以模拟器为准（网关命令回执只透传 status/message，设备自定义字段不落地）
+  const remaining = await refreshBallsRemaining()
+  const inc = incidents.value.find((i) => i.id === id)
+  const needProcessing = !!inc && (inc.status === 'CONFIRMED' || inc.status === 'TRACKING')
+  const exhausted = remaining === 0
+  if (!needProcessing && !exhausted) {
+    pushToast('success', `💥 灭火弹命中目标${remaining !== null ? `（剩余 ${remaining} 发）` : ''}`)
+    return
+  }
+  try {
+    // 旁路迁移见 enums.yaml#IncidentStatus.transitions.bypass：CONFIRMED/TRACKING → PROCESSING
+    if (needProcessing) {
+      await patchIncidentStatus(id, 'PROCESSING')
+      pushToast('success', `💥 灭火弹命中，事件进入处置中${remaining !== null ? `（剩余 ${remaining} 发）` : ''}`)
+    }
+    if (exhausted) {
+      await patchIncidentStatus(id, 'RESOLVED')
+      pushToast('success', '🔥 灭火弹打完，火势已扑灭：事件标记为已处置，无人机自动归队恢复巡检')
+    }
+  } catch (e) {
+    pushToast('error', `状态流转失败：${e instanceof Error ? e.message : '未知错误'}`)
+  }
+  void pollIncidents()
+}
+
+/** 主动刷新一次灭火弹余量（模拟器 /simulator/status），返回当前余量 */
+async function refreshBallsRemaining(): Promise<number | null> {
+  try {
+    const raw = await getSimulatorStatus()
+    ballsRemaining.value = parseBallRemaining(raw, ballsRemaining.value)
+  } catch {
+    // 拉取失败时保留上次值，2s 轮询会继续校正
+  }
+  return ballsRemaining.value
+}
+
 async function onStatusChange(id: string, status: string): Promise<void> {
   try {
     await patchIncidentStatus(id, status)
@@ -632,7 +748,14 @@ function stopPolling(commandId: string): void {
   }
 }
 
-function startPolling(item: TrackedCommand): void {
+interface TrackOptions {
+  /** 终态时不发默认成功/失败 toast（由 onTerminal 自定义提示） */
+  silent?: boolean
+  /** 命令到达终态时回调（拿到含 result 的完整记录与终态状态） */
+  onTerminal?: (rec: CommandRecord, status: string) => void
+}
+
+function startPolling(item: TrackedCommand, opts?: TrackOptions): void {
   stopPolling(item.commandId)
   const timer = setInterval(async () => {
     try {
@@ -642,10 +765,14 @@ function startPolling(item: TrackedCommand): void {
       if (TERMINAL_CMD_STATUSES.has(item.status)) {
         item.terminal = true
         stopPolling(item.commandId)
-        if (item.status === 'SUCCESS' || item.status === 'SUCCEEDED') {
-          pushToast('success', `指令执行成功：${item.label}`)
-        } else {
-          pushToast('error', `指令执行失败：${item.label}（${zhCmdStatus(item.status)}）`)
+        if (opts?.onTerminal) {
+          opts.onTerminal(rec, item.status)
+        } else if (!opts?.silent) {
+          if (item.status === 'SUCCESS' || item.status === 'SUCCEEDED') {
+            pushToast('success', `指令执行成功：${item.label}`)
+          } else {
+            pushToast('error', `指令执行失败：${item.label}（${zhCmdStatus(item.status)}）`)
+          }
         }
       }
     } catch {
@@ -655,7 +782,7 @@ function startPolling(item: TrackedCommand): void {
   pollTimers.set(item.commandId, timer)
 }
 
-function track(commandId: string, label: string, initialStatus: string): void {
+function track(commandId: string, label: string, initialStatus: string, opts?: TrackOptions): void {
   const item: TrackedCommand = {
     key: ++trackedSeq,
     commandId,
@@ -665,7 +792,19 @@ function track(commandId: string, label: string, initialStatus: string): void {
     terminal: TERMINAL_CMD_STATUSES.has(initialStatus),
   }
   tracked.value = [item, ...tracked.value].slice(0, MAX_TRACKED)
-  if (!item.terminal) startPolling(item)
+  if (!item.terminal) {
+    startPolling(item, opts)
+  } else {
+    // 下发响应即终态（罕见）：补一次回调，传最小记录
+    opts?.onTerminal?.({ commandId, status: initialStatus }, item.status)
+    if (!opts?.onTerminal && !opts?.silent) {
+      if (item.status === 'SUCCESS' || item.status === 'SUCCEEDED') {
+        pushToast('success', `指令执行成功：${label}`)
+      } else {
+        pushToast('error', `指令执行失败：${label}（${zhCmdStatus(item.status)}）`)
+      }
+    }
+  }
 }
 
 async function sendCommand(
@@ -772,11 +911,14 @@ onUnmounted(() => {
         :analysis="latestAnalysis"
         :analysis-pulse="analysisPulse"
         :analysis-rounds="analysisRounds"
+        :balls-remaining="ballsRemaining"
+        :bomb-blast="bombBlast"
         @goto="onGoto"
         @select-incident="onSelectFromMap"
         @verify="onVerify"
         @dispatch="onDispatch"
         @analyze="onAnalyze"
+        @drop-bomb="onDropBomb"
         @status-change="onStatusChange"
         @close-card="onCloseCard"
       />
