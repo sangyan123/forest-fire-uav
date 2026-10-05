@@ -31,7 +31,7 @@ vendor_safety_profile:
     - "真实设备接入（Phase 9A）时按机型定义。"
 
 command_safety:
-  control_commands: [TAKEOFF, GOTO, RETURN_HOME, PAUSE, RESUME, DROP_EXTINGUISHING_BALL]
+  control_commands: [TAKEOFF, GOTO, RETURN_HOME, PAUSE, RESUME, DROP_EXTINGUISHING_BALL, LOUDSPEAKER_BROADCAST]
   required_permission: "uav:command"     # 基线第59章；全部控制行为写入AuditLog
 
 extinguishing_ball:            # 镜像 docs/00-doc/constants.yaml#extinguishing_ball（2026-10-05 demo增补）

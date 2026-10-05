@@ -56,6 +56,8 @@
 
 | 2026-10-05 | mock 巡逻航线放大：200×100m → 1200×800m，巡航 8→12 m/s | 用户反馈"自动巡逻区域太小"。原航线周长 600m 在 z15 地图（屏宽约 7.6km）上仅约 26px、小于无人机图标本身，视觉上像原地打转。调整为以起飞点为中心 1200m×800m 矩形（周长 4km，12 m/s 一圈约 5.5 分钟），四角仍在离线瓦片覆盖区（30.09~30.17N/114.09~114.17E）内、距缩放边界余量充足；三个预设起火点（距起飞点 700m~1.7km）相对航线位置关系不变，火情转场（15 m/s）仍需明显加速感。05号仅定义耗电率未定义航线尺寸/巡航速度（mock_simulator_params pointer 范围外），属 mock 行为调整，登记本条目即可；真实机型航线属 Phase 9A 任务规划范畴。涉及：simulator.py（WAYLINE_CORNER_OFFSETS_M/CRUISE_SPEED_MPS/注释）、main.py 文档字符串 |
 
+| 2026-10-05 | 新增「喊话警告」功能（CommandType 增第11项 LOUDSPEAKER_BROADCAST，demo 增补） | 用户产品决策："巡检发现可疑人员欲非法纵火/盗伐时喊话警告"，播报词冻结为"严禁野外用火，保护森林安全。同时警告，任何盗伐、滥伐林木的行为都将受到法律严惩。"。按第76章流程全链路落地：**治理**——enums.yaml v1.2（CommandType+LOUDSPEAKER_BROADCAST，permission=uav:command）、constants.yaml v1.2（新增 loudspeaker_broadcast 段：default_message 播报词唯一权威来源、duration_seconds=5）、defs.schema.json CoreCommandType 11值、openapi.yaml 镜像、uav-safety-v1.yaml control_commands 增值、05号第40章补第11项语义（payload 可选 message 覆盖、缺省机载默认词、result.message 回传全文）、09号第15章能力矩阵增行 Loudspeaker；**代码**——mock-uav 新增喊话命令分支（镜像播报词/时长常量，执行后 SUCCESS 且 result 回传播报全文，无距离/弹药类前置校验）、frontend 快捷指令面板新增【📢 防护喊话】按钮（与起飞/降落/返航并列，巡检时随时可用；初版命名"防火喊话"经用户当日反馈改为"防护喊话"，指令名"森林防护喊话"同理，仅展示文案变更，命令枚举与播报词不变）+ 播报成功后地图无人机位置📢气泡特效约4s + success toast 展示播报全文（文本由设备回执回传，前端不持有）、指令跟踪留档；backend/gateway/DB 零改动。边界说明：可疑人员的"发现"当前为操作员目视（AI 人员检测不在本项目范围，01号识别目标均为火情类），喊话是响应动作；真实喊话器/TTS 属 Phase 9A。涉及：enums.yaml/constants.yaml/defs.schema.json/openapi.yaml/uav-safety-v1.yaml/05号/09号/simulator.py/types.ts/labels.ts/InfoPanel.vue/App.vue/MapView.vue/style.css/讲稿/HANDOVER |
+
 ------
 
 ## 二、未决 Issue（按基线第76章流程登记）

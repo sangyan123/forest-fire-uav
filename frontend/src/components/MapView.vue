@@ -55,6 +55,8 @@ const props = defineProps<{
   ballsRemaining: number | null
   /** 每次投弹成功自增对象，触发火点爆炸/白雾特效 */
   bombBlast: { incidentId: string; seq: number } | null
+  /** 每次喊话播报成功自增，触发无人机📢语音气泡特效 */
+  broadcastPulse: number
 }>()
 
 const emit = defineEmits<{
@@ -452,6 +454,30 @@ watch(
     window.setTimeout(() => m.remove(), 2000)
     const fm = fireMarkers.get(blast.incidentId)
     if (fm) triggerFlash(fm)
+  },
+)
+
+/** 喊话播报特效：无人机当前位置弹出📢语音气泡（CSS 动画约 4s 自消），展示播报词首句 */
+watch(
+  () => props.broadcastPulse,
+  () => {
+    if (!map || props.broadcastPulse <= 0) return
+    const s = props.state
+    if (!s || s.latitude == null || s.longitude == null) return
+    const icon = L.divIcon({
+      className: 'speech-div-icon',
+      html:
+        '<div class="uav-speech-wrap"><div class="uav-speech">' +
+        '📢 严禁野外用火，保护森林安全…' +
+        '</div></div>',
+      iconSize: [0, 0],
+    })
+    const m = L.marker([s.latitude, s.longitude], {
+      icon,
+      interactive: false,
+      zIndexOffset: 800,
+    }).addTo(map)
+    window.setTimeout(() => m.remove(), 4000)
   },
 )
 

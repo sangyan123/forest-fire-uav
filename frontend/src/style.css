@@ -366,6 +366,16 @@ body {
   gap: 8px;
 }
 
+/* 快捷指令中的堆叠行（喊话等整行按钮）与上一行的间距 */
+.btn-row-stack {
+  margin-top: 8px;
+}
+
+.cmd-btn-broadcast {
+  border-color: rgba(0, 229, 160, 0.45);
+  color: #00e5a0;
+}
+
 .cmd-btn {
   flex: 1;
   padding: 9px 0;
@@ -844,6 +854,68 @@ body {
 
   100% {
     transform: scale(3.4);
+    opacity: 0;
+  }
+}
+
+/* ---------- 喊话播报特效（一次性，约 4s 自消） ---------- */
+/* 挂在无人机当前位置的📢语音气泡，展示播报词首句（全文见 toast 与指令跟踪） */
+.speech-div-icon {
+  background: transparent;
+  border: none;
+}
+
+.uav-speech-wrap {
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+.uav-speech {
+  position: absolute;
+  bottom: 16px;
+  left: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(12, 21, 38, 0.92);
+  border: 1px solid rgba(0, 229, 160, 0.55);
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: 0 0 12px rgba(0, 229, 160, 0.25);
+  animation: speech-pop 4s ease-out 1 forwards;
+}
+
+.uav-speech::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  margin-left: -6px;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid rgba(12, 21, 38, 0.92);
+}
+
+@keyframes speech-pop {
+  0% {
+    transform: translateX(-50%) translateY(6px) scale(0.85);
+    opacity: 0;
+  }
+
+  8% {
+    transform: translateX(-50%) translateY(0) scale(1);
+    opacity: 1;
+  }
+
+  80% {
+    transform: translateX(-50%) translateY(0) scale(1);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateX(-50%) translateY(0) scale(1);
     opacity: 0;
   }
 }

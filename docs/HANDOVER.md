@@ -46,6 +46,7 @@ forest-fire-uav/
 | **ai-service 全部算法** | ⚠️ **mock provider**（确定性假输出，见 06 号第57章） |
 | **媒体文件** | ⚠️ 只有元数据，无真实图片 |
 | **投放灭火弹** | ⚠️ **MOCK 投放器**（mock-uav 模拟弹药余量/投放半径校验与命中，无真实挂载；真实投放器属 Phase 9A，见 09 号第15章能力矩阵） |
+| **喊话警告** | ⚠️ **MOCK 喊话器**（mock-uav 模拟播报防火警告词并回传全文，无真实发声；真实喊话器/TTS 属 Phase 9A，播报词唯一来源 constants.yaml#loudspeaker_broadcast） |
 | **认证鉴权** | ❌ 未接（auth-v1.yaml 已冻结待启用） |
 | **WebSocket** | ❌ 前端 1~2s 轮询替代 |
 | **Kafka** | ⚠️ 容器运行，业务链路未用 |

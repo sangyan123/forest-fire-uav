@@ -95,6 +95,13 @@ RGB_IMAGES_PER_THERMAL = 4  # every 4 RGB images insert 1 THERMAL_IMAGE
 EXTINGUISHING_BALL_CAPACITY = 3
 EXTINGUISHING_BALL_DROP_MAX_RADIUS_M = 150.0
 
+# 机载喊话（镜像 docs/00-doc/constants.yaml#loudspeaker_broadcast，2026-10-05 demo 增补；
+# 真实喊话器/TTS 待 Phase 9A）：缺省播报词（唯一权威来源为 constants.yaml，此处镜像）与模拟播报时长。
+LOUDSPEAKER_BROADCAST_DEFAULT_MESSAGE = (
+    "严禁野外用火，保护森林安全。同时警告，任何盗伐、滥伐林木的行为都将受到法律严惩。"
+)
+LOUDSPEAKER_BROADCAST_DURATION_S = 5
+
 # Demo verdict lines: FALSE_ALARM is the "false alarm" demo run. Both lines fly and capture
 # identically; only media.metadata.scenarioType (consumed by the backend demo) differs.
 SCENARIO_VERDICTS = ("CONFIRMED", "FALSE_ALARM")
@@ -585,9 +592,30 @@ class Simulator:
             self._publish_result(command_id, "SUCCESS", {"mediaId": media_id})
         elif command_type == "DROP_EXTINGUISHING_BALL":
             self._handle_drop_ball(command_id, payload)
+        elif command_type == "LOUDSPEAKER_BROADCAST":
+            self._handle_loudspeaker_broadcast(command_id, payload)
         else:
             log.warning("Unknown commandType %s (commandId=%s)", command_type, command_id)
             self._publish_result(command_id, "FAILED", {"message": f"unknown commandType: {command_type}"})
+
+    def _handle_loudspeaker_broadcast(self, command_id: str, payload: dict) -> None:
+        """LOUDSPEAKER_BROADCAST（enums.yaml#CommandType 第11项，constants.yaml#loudspeaker_broadcast）。
+
+        机载喊话器向地面播报警告：payload.message 优先，缺省播报机载默认词。
+        无距离/弹药类前置校验（任意位置可喊话）；执行约 duration_seconds 后回 SUCCESS，
+        result.message 回传实际播报全文供平台展示留档（MOCK：不真实发声，仅模拟时长语义）。
+        """
+        custom = payload.get("message")
+        message = (
+            custom
+            if isinstance(custom, str) and custom.strip()
+            else LOUDSPEAKER_BROADCAST_DEFAULT_MESSAGE
+        )
+        log.info("Loudspeaker broadcast (%ds): %s", LOUDSPEAKER_BROADCAST_DURATION_S, message)
+        self._publish_result(command_id, "SUCCESS", {
+            "message": message,
+            "durationSeconds": LOUDSPEAKER_BROADCAST_DURATION_S,
+        })
 
     def _handle_drop_ball(self, command_id: str, payload: dict) -> None:
         """DROP_EXTINGUISHING_BALL（enums.yaml#CommandType 第10项，constants.yaml#extinguishing_ball）。

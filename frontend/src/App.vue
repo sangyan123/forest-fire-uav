@@ -87,6 +87,9 @@ const ballsRemaining = ref<number | null>(null)
 const bombBlast = ref<{ incidentId: string; seq: number } | null>(null)
 let bombSeq = 0
 
+/* 喊话警告（LOUDSPEAKER_BROADCAST）：播报成功自增触发地图无人机📢气泡；播报全文由设备回执回传 */
+const broadcastPulse = ref(0)
+
 /* 火场分析（F05/F06）：仅作用于当前选中事件 */
 const polygons = ref<FirePolygonShape[]>([])
 const latestAnalysis = ref<FireAnalysis | null>(null)
@@ -621,8 +624,8 @@ async function onAnalyze(id: string): Promise<void> {
 
 /* ---------------- 投放灭火弹（DROP_EXTINGUISHING_BALL） ---------------- */
 
-/** 命令记录里宽松取 result.deviceResponse（mock-uav 投弹回执所在） */
-function bombResultOf(rec: CommandRecord): Record<string, unknown> {
+/** 命令记录里宽松取 result.deviceResponse（mock-uav 设备回执所在，投弹/喊话共用） */
+function deviceResultOf(rec: CommandRecord): Record<string, unknown> {
   const raw = rec as Record<string, unknown>
   const result = raw.result
   if (typeof result !== 'object' || result === null) return {}
@@ -631,14 +634,14 @@ function bombResultOf(rec: CommandRecord): Record<string, unknown> {
   return typeof dr === 'object' && dr !== null ? (dr as Record<string, unknown>) : r
 }
 
-/** 投弹失败原因：优先设备回执 message，其次后端 errorMessage */
-function bombFailMessage(rec: CommandRecord): string {
+/** 设备拒绝/失败原因：优先设备回执 message，其次后端 errorMessage */
+function deviceFailMessage(rec: CommandRecord): string {
   const raw = rec as Record<string, unknown>
-  const candidates: unknown[] = [bombResultOf(rec).message, raw.errorMessage, raw.message]
+  const candidates: unknown[] = [deviceResultOf(rec).message, raw.errorMessage, raw.message]
   for (const c of candidates) {
     if (typeof c === 'string' && c.trim()) return c
   }
-  return '无人机未接受投放指令'
+  return '无人机未接受指令'
 }
 
 async function onDropBomb(id: string): Promise<void> {
@@ -677,7 +680,7 @@ async function onBombTerminal(id: string, rec: CommandRecord): Promise<void> {
   void pollIncidents()
   const status = String(rec.status ?? '').toUpperCase()
   if (status !== 'SUCCESS' && status !== 'SUCCEEDED') {
-    pushToast('error', `投放未执行：${bombFailMessage(rec)}`)
+    pushToast('error', `投放未执行：${deviceFailMessage(rec)}`)
     return
   }
   bombBlast.value = { incidentId: id, seq: ++bombSeq }
@@ -704,6 +707,23 @@ async function onBombTerminal(id: string, rec: CommandRecord): Promise<void> {
     pushToast('error', `状态流转失败：${e instanceof Error ? e.message : '未知错误'}`)
   }
   void pollIncidents()
+}
+
+/* ---------------- 喊话警告（LOUDSPEAKER_BROADCAST） ---------------- */
+
+/** 喊话命令终态：成功→📢气泡特效 + toast 展示设备回传的播报全文；失败→设备回执原因 */
+function onBroadcastTerminal(rec: CommandRecord): void {
+  const status = String(rec.status ?? '').toUpperCase()
+  if (status !== 'SUCCESS' && status !== 'SUCCEEDED') {
+    pushToast('error', `喊话未执行：${deviceFailMessage(rec)}`)
+    return
+  }
+  broadcastPulse.value++
+  const text = deviceResultOf(rec).message
+  pushToast(
+    'success',
+    `📢 已播报：${typeof text === 'string' && text.trim() ? text : '森林防火警告词'}`,
+  )
 }
 
 /** 主动刷新一次灭火弹余量（模拟器 /simulator/status），返回当前余量 */
@@ -811,6 +831,7 @@ async function sendCommand(
   commandType: CommandType,
   params?: Record<string, unknown>,
   label?: string,
+  trackOpts?: TrackOptions,
 ): Promise<void> {
   const text = label ?? zhCmdType(commandType)
   try {
@@ -820,14 +841,22 @@ async function sendCommand(
       pushToast('error', `指令下发成功但后端未返回命令 ID，无法跟踪：${text}`)
       return
     }
-    track(String(cid), text, String(rec.status ?? 'CREATED').toUpperCase())
+    track(String(cid), text, String(rec.status ?? 'CREATED').toUpperCase(), trackOpts)
     pushToast('info', `指令已下发：${text}`)
   } catch (e) {
     pushToast('error', `指令下发失败：${text}（${e instanceof Error ? e.message : '未知错误'}）`)
   }
 }
 
-function onQuick(commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME'): void {
+function onQuick(commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME' | 'LOUDSPEAKER_BROADCAST'): void {
+  if (commandType === 'LOUDSPEAKER_BROADCAST') {
+    // 喊话：终态提示由 onBroadcastTerminal 定制（展示设备回传的播报全文），屏蔽默认成功 toast
+    void sendCommand('LOUDSPEAKER_BROADCAST', undefined, '📢 森林防护喊话', {
+      silent: true,
+      onTerminal: (final) => onBroadcastTerminal(final),
+    })
+    return
+  }
   void sendCommand(commandType)
 }
 
@@ -913,6 +942,7 @@ onUnmounted(() => {
         :analysis-rounds="analysisRounds"
         :balls-remaining="ballsRemaining"
         :bomb-blast="bombBlast"
+        :broadcast-pulse="broadcastPulse"
         @goto="onGoto"
         @select-incident="onSelectFromMap"
         @verify="onVerify"

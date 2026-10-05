@@ -22,6 +22,7 @@ export type CommandType =
   | 'PAUSE'
   | 'RESUME'
   | 'DROP_EXTINGUISHING_BALL'
+  | 'LOUDSPEAKER_BROADCAST'
 
 export interface CommandRecord {
   id?: string | number

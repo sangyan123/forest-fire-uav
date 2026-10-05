@@ -15,7 +15,7 @@ const props = defineProps<{
 }>()
 
 defineEmits<{
-  (e: 'quick', commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME'): void
+  (e: 'quick', commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME' | 'LOUDSPEAKER_BROADCAST'): void
   (e: 'select-incident', id: string): void
 }>()
 
@@ -107,7 +107,10 @@ function timeText(ts: number): string {
         <button class="cmd-btn" @click="$emit('quick', 'LAND')">降落</button>
         <button class="cmd-btn" @click="$emit('quick', 'RETURN_HOME')">一键返航</button>
       </div>
-      <p class="hint">提示：在左侧地图上点击任意位置可下发 GOTO 指令。</p>
+      <div class="btn-row btn-row-stack">
+        <button class="cmd-btn cmd-btn-broadcast" @click="$emit('quick', 'LOUDSPEAKER_BROADCAST')">📢 防护喊话</button>
+      </div>
+      <p class="hint">提示：在左侧地图上点击任意位置可下发 GOTO 指令；巡检发现可疑人员可随时喊话警告。</p>
     </section>
 
     <section class="card">

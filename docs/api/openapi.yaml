@@ -1306,8 +1306,8 @@ components:
     # ---------- Command ----------
     CommandType:
       type: string
-      description: "十项核心命令集=原九项+DROP_EXTINGUISHING_BALL（enums.yaml#CommandType enums-v1.1；语义owner=05+09）。TAKEOFF/GOTO/RETURN_HOME/PAUSE/RESUME/DROP_EXTINGUISHING_BALL须持uav:command；投弹payload携带latitude/longitude/incidentId，参数见constants.yaml#extinguishing_ball。"
-      enum: [TAKEOFF, LAND, GOTO, GIMBAL_LOOK_AT, CAPTURE_RGB, CAPTURE_THERMAL, RETURN_HOME, PAUSE, RESUME, DROP_EXTINGUISHING_BALL]
+      description: "十一项核心命令集=原九项+DROP_EXTINGUISHING_BALL+LOUDSPEAKER_BROADCAST（enums.yaml#CommandType enums-v1.2；语义owner=05+09）。TAKEOFF/GOTO/RETURN_HOME/PAUSE/RESUME/DROP_EXTINGUISHING_BALL/LOUDSPEAKER_BROADCAST须持uav:command；投弹payload携带latitude/longitude/incidentId，喊话可选message，参数见constants.yaml#extinguishing_ball与#loudspeaker_broadcast。"
+      enum: [TAKEOFF, LAND, GOTO, GIMBAL_LOOK_AT, CAPTURE_RGB, CAPTURE_THERMAL, RETURN_HOME, PAUSE, RESUME, DROP_EXTINGUISHING_BALL, LOUDSPEAKER_BROADCAST]
     CommandCreateRequest:
       type: object
       required: [commandType]
