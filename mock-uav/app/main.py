@@ -170,7 +170,7 @@ async def start_fire_scenario(request: FireScenarioStartRequest | None = None):
 
 @app.post("/simulator/scenarios/fire/stop")
 async def stop_fire_scenario():
-    """Stop the fire scenario: stop media capture and restore the wayline patrol (8 m/s).
+    """Stop the fire scenario: stop media capture and restore the wayline patrol (12 m/s).
 
     Behaviour unchanged by the verdict lines; fireScenario.verdict keeps the last run's value.
     """

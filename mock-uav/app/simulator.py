@@ -66,9 +66,9 @@ HOME_LAT = 30.1200
 HOME_LON = 114.1200
 HOME_ALTITUDE = 260.0
 
-CRUISE_SPEED_MPS = 8.0
+CRUISE_SPEED_MPS = 12.0  # 2026-10-05 demo 调整（原 8.0）：配合巡逻区放大保持移动感；火情转场仍 15 m/s
 TICK_SECONDS = 1.0
-ARRIVAL_RADIUS_M = CRUISE_SPEED_MPS * TICK_SECONDS  # < 8 m -> arrived
+ARRIVAL_RADIUS_M = CRUISE_SPEED_MPS * TICK_SECONDS  # < 12 m -> arrived
 BATTERY_DRAIN_PER_TICK = 1.0 / 60.0  # 1% per minute
 BATTERY_FLOOR = 5.0
 
@@ -126,13 +126,16 @@ FAILURE_RECOVER_TYPE = "RECOVER"
 
 M_PER_DEG_LAT = 111_320.0
 
-# Rectangular wayline around Home: 200 m x 100 m -> perimeter ~600 m.
+# Rectangular wayline around Home: 1200 m x 800 m -> perimeter ~4.0 km.
+# （2026-10-05 demo 调整：原 200x100m 在 z15 地图上仅约 26px、小于无人机图标本身，
+# 视觉上不像巡逻；放大后四角仍全部处于离线瓦片覆盖区 30.09~30.17N / 114.09~114.17E 内，
+# 且三个预设起火点（700m~1.7km）仍需明显转场。见 change-log 同日条目。）
 # Offsets are (east_m, north_m) from the home point.
 WAYLINE_CORNER_OFFSETS_M = [
-    (100.0, 50.0),
-    (-100.0, 50.0),
-    (-100.0, -50.0),
-    (100.0, -50.0),
+    (600.0, 400.0),
+    (-600.0, 400.0),
+    (-600.0, -400.0),
+    (600.0, -400.0),
 ]
 
 
@@ -318,7 +321,7 @@ class Simulator:
         self._publish_fire_scenario_event(fire_lat, fire_lon)
 
     def stop_fire_scenario(self) -> None:
-        """Stop fire capture, clear the scenario and restore the rectangular wayline patrol (8 m/s)."""
+        """Stop fire capture, clear the scenario and restore the rectangular wayline patrol (12 m/s)."""
         self._fire_scenario = {
             "active": False,
             "latitude": None,
