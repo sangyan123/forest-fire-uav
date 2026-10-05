@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import FireIncidentList from './FireIncidentList.vue'
-import type { FireIncident, TrackedCommand, UavState } from '../types'
+import type { FireIncident, PatrolScheduleView, TrackedCommand, UavState } from '../types'
 import { zhCmdStatus, zhGpsStatus, zhUavStatus } from '../labels'
 
 const props = defineProps<{
@@ -12,11 +12,13 @@ const props = defineProps<{
   commands: TrackedCommand[]
   incidents: FireIncident[]
   selectedIncidentId: string | null
+  patrolSchedule: PatrolScheduleView | null
 }>()
 
 defineEmits<{
   (e: 'quick', commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME' | 'LOUDSPEAKER_BROADCAST'): void
   (e: 'select-incident', id: string): void
+  (e: 'toggle-patrol', on: boolean): void
 }>()
 
 const battery = computed<number | null>(() => {
@@ -45,6 +47,26 @@ const relTime = computed<string>(() => {
   if (props.lastUpdate === null) return '—'
   const sec = Math.max(0, Math.round((props.now - props.lastUpdate) / 1000))
   return `${sec} 秒前`
+})
+
+/* ---------------- 定时巡逻（快捷指令内开关） ---------------- */
+
+const patrolOn = computed(() => props.patrolSchedule?.shift?.origin === 'MANUAL')
+
+function patrolChecked(e: Event): boolean {
+  return (e.target as HTMLInputElement).checked
+}
+
+const patrolStatusText = computed<string>(() => {
+  const ps = props.patrolSchedule
+  if (!ps) return '—'
+  const s = ps.shift
+  if (s) {
+    const endText = new Date(s.endAt).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })
+    if (s.returning) return `🛩️ 班次结束返航中 · 到家后自动降落充电`
+    return `🛩️ 巡逻中（${s.origin === 'MANUAL' ? '手动' : '计划'}班次）· ${endText} 自动返航`
+  }
+  return `⏱️ 待命 · 每天 ${ps.startTime} 自动起飞巡逻 ${ps.durationHours} 小时`
 })
 
 function chipClass(status: string): string {
@@ -109,6 +131,20 @@ function timeText(ts: number): string {
       </div>
       <div class="btn-row btn-row-stack">
         <button class="cmd-btn cmd-btn-broadcast" @click="$emit('quick', 'LOUDSPEAKER_BROADCAST')">📢 防护喊话</button>
+      </div>
+      <div class="patrol-row btn-row-stack">
+        <div class="patrol-text">
+          <b>定时巡逻</b>
+          <small class="patrol-status">{{ patrolStatusText }}</small>
+        </div>
+        <label class="patrol-switch">
+          <input
+            type="checkbox"
+            :checked="patrolOn"
+            @change="$emit('toggle-patrol', patrolChecked($event))"
+          />
+          <span class="patrol-slider"></span>
+        </label>
       </div>
       <p class="hint">提示：在左侧地图上点击任意位置可下发 GOTO 指令；巡检发现可疑人员可随时喊话警告。</p>
     </section>

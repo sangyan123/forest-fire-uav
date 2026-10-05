@@ -2,8 +2,8 @@
 # 森林防火无人机智能系统 — 参数唯一数值来源（constants.yaml）
 # =====================================================================
 # 归属:   00号基线 V1.3 第5章（docs/00-doc/ 机器可执行来源）
-# 版本:   constants-v1.2
-# 日期:   2026-09-27（v1.1: 2026-10-05 增补 extinguishing_ball 段；v1.2: 2026-10-05 增补 loudspeaker_broadcast 段，见 change-log）
+# 版本:   constants-v1.3
+# 日期:   2026-09-27（v1.1: 2026-10-05 增补 extinguishing_ball 段；v1.2: 2026-10-05 增补 loudspeaker_broadcast 段；v1.3: 2026-10-05 增补 patrol_schedule 段，见 change-log）
 #
 # 定位:
 #   本文件只收录 00基线 V1.3 自身章节冻结的数值参数
@@ -21,7 +21,7 @@
 # =====================================================================
 
 meta:
-  file_version: constants-v1.2
+  file_version: constants-v1.3
   baseline: "00 跨文档设计基线与矛盾修订清单 V1.3（docs/00-doc/active/00_跨文档设计基线_V1.3.md）"
   created: 2026-09-27
   status: "V1 Engineering Baseline（工程基线，非科学结论）"
@@ -136,6 +136,20 @@ constants:
     default_message: "严禁野外用火，保护森林安全。同时警告，任何盗伐、滥伐林木的行为都将受到法律严惩。"   # 缺省播报词（唯一权威来源；前端不持有文本，播报后由设备 result.message 回传展示）
     duration_seconds: 5               # 播报时长（mock 模拟，用于设备回执延迟与前端气泡展示）
     consumers: ["doc-03", "doc-05", "doc-09", "mock-uav", "frontend"]
+
+  # -------------------------------------------------------------------
+  # 8. 定时巡逻计划（2026-10-05 demo 增补，无基线章节）
+  #    来源: 用户产品决策（"一天几点准时飞起来巡逻然后飞多少个小时"）。
+  #    日常计划始终生效：每天 start_time 自动起飞、巡逻 duration_hours 后（08:00+10h=18:00）
+  #    自动返航降落；快捷指令开关=手动班次（立即起飞，同样飞到 18:00）。
+  #    镜像目标: backend application.yml（patrol.schedule.*，env 可覆盖）；班次内存态。
+  # -------------------------------------------------------------------
+  patrol_schedule:
+    baseline_chapter: "无（demo 增补，登记 change-log 2026-10-05）"
+    start_time: "08:00"               # 每日自动起飞时刻（zone 时区）
+    duration_hours: 10                # 巡逻时长（窗口结束=18:00 自动返航）
+    zone: "Asia/Shanghai"             # 计划时区（后端容器为 UTC，窗口计算按此时区）
+    consumers: ["doc-03", "doc-05", "backend", "frontend"]
 
 # ---------------------------------------------------------------------
 # pointers：不属于本文件的数值参数去向（防止同一数字多处维护）

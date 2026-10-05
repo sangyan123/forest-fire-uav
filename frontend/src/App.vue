@@ -9,6 +9,7 @@ import {
   getFireIncidents,
   getIncidentPolygons,
   getIncidentTracking,
+  getPatrolSchedule,
   getSimulatorStatus,
   getUavState,
   missionIdOf,
@@ -18,6 +19,7 @@ import {
   postIncidentVerification,
   startMission,
   startScenario,
+  updatePatrolSchedule,
 } from './api'
 import {
   appendTimelinePoint,
@@ -41,6 +43,7 @@ import type {
   FireIncident,
   FirePolygonShape,
   GotoPayload,
+  PatrolScheduleView,
   StatusPoint,
   TrackedCommand,
   UavState,
@@ -52,6 +55,7 @@ const STATE_POLL_MS = 1000
 const COMMAND_POLL_MS = 1000
 const INCIDENT_POLL_MS = 2000
 const SIMULATOR_POLL_MS = 2000
+const PATROL_POLL_MS = 10000
 // 转场飞行约60~75秒（900m@15m/s）+采集/检测/入库，事件生成最长可达2分钟
 const SCENARIO_WAIT_TIMEOUT_MS = 120000
 const MAX_TRACKED = 12
@@ -89,6 +93,10 @@ let bombSeq = 0
 
 /* 喊话警告（LOUDSPEAKER_BROADCAST）：播报成功自增触发地图无人机📢气泡；播报全文由设备回执回传 */
 const broadcastPulse = ref(0)
+
+/* 定时巡逻：10s 轮询班次状态（手动班次结束/开关自动回位由此反映） */
+const patrolSchedule = ref<PatrolScheduleView | null>(null)
+let patrolTimer: ReturnType<typeof setInterval> | undefined
 
 /* 火场分析（F05/F06）：仅作用于当前选中事件 */
 const polygons = ref<FirePolygonShape[]>([])
@@ -873,9 +881,43 @@ function onGoto(payload: GotoPayload): void {
   )
 }
 
+/* ---------------- 定时巡逻 ---------------- */
+
+async function pollPatrolSchedule(): Promise<void> {
+  try {
+    patrolSchedule.value = await getPatrolSchedule()
+  } catch {
+    // 后端未就绪时保留上次状态
+  }
+}
+
+/** 快捷指令「定时巡逻」开关：开=立即起飞开手动班次；关=结束手动班次（日常计划不变） */
+async function onTogglePatrol(on: boolean): Promise<void> {
+  const prev = patrolSchedule.value
+  try {
+    const v = await updatePatrolSchedule(on)
+    patrolSchedule.value = v
+    if (on) {
+      if (v.shift?.origin === 'MANUAL') {
+        pushToast('success', prev?.shift?.origin === 'MANUAL'
+          ? '定时巡逻已处于开启状态（手动班次进行中）'
+          : '🛩️ 定时巡逻已开启：无人机立即起飞，飞到 18:00 自动返航降落')
+      } else {
+        pushToast('info', '🛩️ 已在巡逻班次中，今日按计划自动返航')
+      }
+    } else {
+      pushToast('info', '⏹️ 定时巡逻已关闭：每天 08:00 自动起飞巡逻 10 小时' +
+        (prev?.shift?.origin === 'MANUAL' ? '（手动班次已结束，无人机返航中）' : ''))
+    }
+  } catch (e) {
+    pushToast('error', `定时巡逻开关失败：${e instanceof Error ? e.message : '未知错误'}`)
+  }
+}
+
 onMounted(() => {
   void pollState()
   void pollIncidents()
+  void pollPatrolSchedule()
   stateTimer = setInterval(() => {
     void pollState()
   }, STATE_POLL_MS)
@@ -885,6 +927,9 @@ onMounted(() => {
   simulatorTimer = setInterval(() => {
     void pollSimulatorStatus()
   }, SIMULATOR_POLL_MS)
+  patrolTimer = setInterval(() => {
+    void pollPatrolSchedule()
+  }, PATROL_POLL_MS)
   clockTimer = setInterval(() => {
     now.value = Date.now()
   }, 500)
@@ -895,6 +940,7 @@ onUnmounted(() => {
   if (clockTimer !== undefined) clearInterval(clockTimer)
   if (incidentTimer !== undefined) clearInterval(incidentTimer)
   if (simulatorTimer !== undefined) clearInterval(simulatorTimer)
+  if (patrolTimer !== undefined) clearInterval(patrolTimer)
   for (const id of [...pollTimers.keys()]) stopPolling(id)
 })
 </script>
@@ -960,8 +1006,10 @@ onUnmounted(() => {
         :commands="tracked"
         :incidents="incidents"
         :selected-incident-id="selectedIncidentId"
+        :patrol-schedule="patrolSchedule"
         @quick="onQuick"
         @select-incident="onSelectFromList"
+        @toggle-patrol="onTogglePatrol"
       />
     </main>
     <Toasts />

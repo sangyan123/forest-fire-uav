@@ -119,3 +119,16 @@ export interface MissionRecord {
   status?: string
   [key: string]: unknown
 }
+
+/** 定时巡逻视图：每日窗口（startTime~startTime+durationHours）+ 当前班次（内存态） */
+export interface PatrolScheduleView {
+  startTime: string
+  durationHours: number
+  zone: string
+  shift: {
+    origin: 'MANUAL' | 'SCHEDULED'
+    startedAt: string
+    endAt: string
+    returning: boolean
+  } | null
+}

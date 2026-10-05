@@ -49,6 +49,20 @@ device:
   # uav_telemetry.event_time 距今超过该值 → 置 'OFFLINE'（DeviceOfflineScheduler 每 5 秒扫描）
   offline-timeout-seconds: 15
 
+mock:
+  # mock-uav 模拟器状态查询（定时巡逻收敛循环用），容器环境用 MOCK_URL 覆盖
+  url: ${MOCK_URL:http://mock-uav:8002}
+
+patrol:
+  schedule:
+    # 定时巡逻计划（2026-10-05 demo 增补，默认值机器来源 constants.yaml#patrol_schedule）
+    # 每天 start-time 自动起飞、巡逻 duration-hours 小时后自动返航降落（08:00+10h=18:00）；
+    # 时区 zone；班次为内存态，重启后回到本配置并自愈。开关（手动班次）经 /api/v1/patrol-schedule
+    device-code: ${PATROL_DEVICE_CODE:UAV-001}
+    start-time: ${PATROL_START_TIME:08:00}
+    duration-hours: ${PATROL_DURATION_HOURS:10}
+    zone: ${PATROL_ZONE:Asia/Shanghai}
+
 management:
   endpoints:
     web:

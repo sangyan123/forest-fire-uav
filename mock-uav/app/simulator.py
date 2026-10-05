@@ -71,6 +71,7 @@ TICK_SECONDS = 1.0
 ARRIVAL_RADIUS_M = CRUISE_SPEED_MPS * TICK_SECONDS  # < 12 m -> arrived
 BATTERY_DRAIN_PER_TICK = 1.0 / 60.0  # 1% per minute
 BATTERY_FLOOR = 5.0
+BATTERY_CHARGE_PER_TICK = 1.0 / 60.0  # LANDED 充电 +1%/min（2026-10-05 定时巡逻：归巢回满）
 
 # Fire scenario: default fire point ~800 m north-east of Home.
 FIRE_DEFAULT_LAT = 30.1235
@@ -564,8 +565,16 @@ class Simulator:
             self._publish_result(command_id, "SUCCESS", {})
         elif command_type == "TAKEOFF":
             self._armed = True
+            was_landed = self._flight_status == "LANDED"
             self._flight_status = "FLYING"
-            if self._flight_mode not in ("GOTO", "RETURN_HOME", "WAYLINE"):
+            if was_landed:
+                # 定时巡逻/手动起飞（2026-10-05）：从停机状态恢复航线巡逻（就近航点插回），
+                # 而非原地悬停——"准时飞起来巡逻"语义
+                self._waypoint_index = self._nearest_waypoint_index()
+                self._flight_mode = "WAYLINE"
+                self._speed_mps = CRUISE_SPEED_MPS
+                log.info("Takeoff from ground: resumed wayline patrol at nearest waypoint")
+            elif self._flight_mode not in ("GOTO", "RETURN_HOME", "WAYLINE"):
                 self._flight_mode = "HOVER"
             self._publish_result(command_id, "SUCCESS", {})
         elif command_type == "LAND":
@@ -584,6 +593,8 @@ class Simulator:
         elif command_type == "RESUME":
             self._flight_status = "FLYING"
             if self._flight_mode not in ("GOTO", "RETURN_HOME"):
+                # 恢复巡逻：就近航点插回（GOTO/悬停后位置任意，直飞当前角点会斜穿）
+                self._waypoint_index = self._nearest_waypoint_index()
                 self._flight_mode = "WAYLINE"
             self._publish_result(command_id, "SUCCESS", {})
         elif command_type in ("CAPTURE_RGB", "CAPTURE_THERMAL"):
@@ -692,8 +703,17 @@ class Simulator:
                 arrived = not self._step_toward(self._target["latitude"], self._target["longitude"])
                 self._moving = not arrived
                 if arrived:
-                    self._flight_mode = "HOVER"
-                    self._flight_status = "HOVERING"
+                    was_return_home = self._flight_mode == "RETURN_HOME"
+                    if was_return_home:
+                        # RETURN_HOME 到家自动降落（2026-10-05 定时巡逻）：归巢即降落充电
+                        if self._fire_scenario["active"]:
+                            self.stop_fire_scenario()
+                        self._flight_mode = "AUTO_LAND"
+                        self._flight_status = "LANDED"
+                        log.info("Returned home: auto-landed at home point (charging)")
+                    else:
+                        self._flight_mode = "HOVER"
+                        self._flight_status = "HOVERING"
                     if self._pending_command_id is not None:
                         elapsed_ms = int((time.monotonic() - self._goto_started_at) * 1000)
                         self._publish_result(self._pending_command_id, "SUCCESS", {"executionTimeMs": elapsed_ms})
@@ -712,7 +732,11 @@ class Simulator:
                 if arrived:
                     self._waypoint_index = (self._waypoint_index + 1) % len(self._waypoints)
 
-        self._battery = max(BATTERY_FLOOR, self._battery - BATTERY_DRAIN_PER_TICK)
+        if self._flight_status == "LANDED":
+            # 停机充电（2026-10-05 定时巡逻）：归巢后每分钟 +1%，回满支撑次日定时起飞
+            self._battery = min(100.0, self._battery + BATTERY_CHARGE_PER_TICK)
+        else:
+            self._battery = max(BATTERY_FLOOR, self._battery - BATTERY_DRAIN_PER_TICK)
 
         if self._comms_silent:
             # scenario-06 silence: the simulation keeps running internally but nothing is

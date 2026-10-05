@@ -1,4 +1,4 @@
-import type { CommandRecord, CommandType, Envelope, MissionRecord, UavState } from './types'
+import type { CommandRecord, CommandType, Envelope, MissionRecord, PatrolScheduleView, UavState } from './types'
 
 // 默认同源相对路径，由 nginx（容器）或 vite proxy（本地 dev/preview）转发；
 // 不能写死 localhost，否则只有浏览器与 Docker 宿主同机时才能连上
@@ -199,6 +199,21 @@ export function startMission(missionId: string): Promise<unknown> {
     method: 'POST',
     headers: JSON_HEADERS,
     body: '{}',
+  })
+}
+
+/* ---------------- 定时巡逻计划 ---------------- */
+
+export function getPatrolSchedule(): Promise<PatrolScheduleView> {
+  return request<PatrolScheduleView>('/api/v1/patrol-schedule')
+}
+
+/** 快捷指令开关：true=立即起飞开手动班次（飞到窗口结束时刻自动返航），false=结束手动班次 */
+export function updatePatrolSchedule(manual: boolean): Promise<PatrolScheduleView> {
+  return request<PatrolScheduleView>('/api/v1/patrol-schedule', {
+    method: 'PUT',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ manual }),
   })
 }
 

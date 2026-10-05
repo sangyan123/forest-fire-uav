@@ -665,6 +665,58 @@ paths:
         '50004':
           $ref: '#/components/responses/VendorError'
 
+  /api/v1/patrol-schedule:
+    get:
+      tags: [Patrol]
+      summary: 查询定时巡逻计划与当前班次
+      description: >-
+        日常计划始终生效：每天 startTime（默认 08:00，constants.yaml#patrol_schedule）自动起飞、
+        巡逻 durationHours 小时（默认 10h，至 18:00）后自动返航降落。shift 为当前班次（内存态，
+        MANUAL=快捷指令开关打开的手动班次 / SCHEDULED=计划班次；returning=已下发返航等待降落）。
+      responses:
+        '200':
+          description: 定时巡逻计划视图
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PatrolScheduleView'
+    put:
+      tags: [Patrol]
+      summary: 定时巡逻开关（快捷指令）
+      description: >-
+        manual=true：无人机立即起飞开手动班次（飞到下一个窗口结束时刻 18:00 自动返航，返航降落后开关自动回位）；
+        manual=false：结束手动班次（飞行中则立即返航），日常计划不受影响。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [manual]
+              properties:
+                manual:
+                  type: boolean
+                  description: 开关目标状态
+      responses:
+        '200':
+          description: 更新后的定时巡逻计划视图
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PatrolScheduleView'
+        '40001':
+          $ref: '#/components/responses/BadRequest'
+
   /api/v1/commands/{commandId}:
     get:
       tags: [Command]
@@ -1346,6 +1398,24 @@ components:
         status:
           $ref: '#/components/schemas/CommandStatus'
         message: { type: string, example: arrived }
+
+    # ---------- Patrol（定时巡逻，demo 增补 2026-10-05） ----------
+    PatrolScheduleView:
+      type: object
+      description: "定时巡逻计划视图（constants.yaml#patrol_schedule）；shift 为内存态班次，后端重启后清空并自愈"
+      properties:
+        startTime: { type: string, example: "08:00", description: "每日自动起飞时刻（zone 时区）" }
+        durationHours: { type: integer, example: 10, description: "巡逻时长，窗口结束=自动返航" }
+        zone: { type: string, example: Asia/Shanghai }
+        shift:
+          type: object
+          nullable: true
+          description: "当前班次；null=待命（窗口外/手动班次未开）"
+          properties:
+            origin: { type: string, enum: [MANUAL, SCHEDULED], description: "MANUAL=快捷指令开关 / SCHEDULED=每日计划" }
+            startedAt: { type: string, format: date-time }
+            endAt: { type: string, format: date-time, description: "班次结束时刻=自动返航时刻" }
+            returning: { type: boolean, description: "已下发返航，等待到家降落" }
 
     # ---------- AI Service ----------
     AiDetectionRequest:
