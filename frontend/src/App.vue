@@ -736,7 +736,7 @@ onUnmounted(() => {
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark"></span>
-        森林防火无人机智能系统
+        森林保护无人机智能系统
       </div>
       <div class="topbar-right">
         <button
