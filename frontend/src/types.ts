@@ -23,6 +23,7 @@ export type CommandType =
   | 'RESUME'
   | 'DROP_EXTINGUISHING_BALL'
   | 'LOUDSPEAKER_BROADCAST'
+  | 'DROP_SUPPLIES'
 
 export interface CommandRecord {
   id?: string | number

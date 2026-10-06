@@ -21,7 +21,7 @@
 # =====================================================================
 
 meta:
-  file_version: enums-v1.2
+  file_version: enums-v1.3
   baseline: "00 跨文档设计基线与矛盾修订清单 V1.3（docs/00-doc/active/00_跨文档设计基线_V1.3.md）"
   created: 2026-09-27
   owner_of_this_file: "00号基线（治理方）；各枚举语义归各 owner 文档"
@@ -63,7 +63,7 @@ enums:
   # -------------------------------------------------------------------
   CommandType:
     owner: "05 UAV统一协议（V1.2 第40章）+ 09 UAV厂商接入（V1.1 第4章）"
-    source: "基线V1.3 第28~29章；九项核心命令集 + 第10项投弹/第11项喊话（2026-10-05 demo 增补，经09号能力矩阵评审，见 change-log）"
+    source: "基线V1.3 第28~29章；九项核心命令集 + 第10项投弹/第11项喊话/第12项投放物资（2026-10-05~06 demo 增补，经09号能力矩阵评审，见 change-log）"
     description: "可直接下发给无人机的底层动作。语义由 05+09 共同定义。"
     values:
       - name: TAKEOFF
@@ -95,11 +95,14 @@ enums:
       - name: LOUDSPEAKER_BROADCAST
         desc: "机载喊话器播报警告（巡检发现可疑人员/非法用火/盗伐时使用；payload 可选 message 覆盖播报词，缺省播报 constants.yaml#loudspeaker_broadcast.default_message 森林防火警告词；机载执行约 duration_seconds 秒后回 SUCCESS 并在 result.message 回传实际播报全文）"
         permission: "uav:command"
+      - name: DROP_SUPPLIES
+        desc: "投放机载应急物资包（巡检发现受伤/受困人员或地面队伍需要补给时的应急支援；无需目标点，落点=无人机当前位置；机载安全校验：物资余量>0 且无人机在空中，否则命令 FAILED；参数见 constants.yaml#supply_drop）"
+        permission: "uav:command"
     transitions: "见 CommandStatus（命令执行状态机）"
     notes:
       - "PATROL 是 MissionType，不是命令（基线第28章）。"
       - "05号第40章的扩展命令（HOVER/ZOOM/TAKE_PHOTO 等11项）不在本核心集，须经 09号能力矩阵确认后另行评审加入。"
-      - "DROP_EXTINGUISHING_BALL 与 LOUDSPEAKER_BROADCAST 为 demo 阶段增补的第10/11项核心命令（用户产品决策 2026-10-05），已按第76章流程同步 05/09号、协议 Schema、openapi、uav-safety 配置；真实投放器/喊话器适配属 Phase 9A，当前为 MOCK。"
+      - "DROP_EXTINGUISHING_BALL、LOUDSPEAKER_BROADCAST 与 DROP_SUPPLIES 为 demo 阶段增补的第10/11/12项核心命令（用户产品决策 2026-10-05~06），已按第76章流程同步 05/09号、协议 Schema、openapi、uav-safety 配置；真实投放器/喊话器/物资仓适配属 Phase 9A，当前为 MOCK。"
       - "permission 标注依据基线第59章；所有控制行为必须写入 AuditLog。"
     consumers: ["doc-05", "doc-07", "doc-08", "doc-09", "backend", "uav-gateway", "mock-uav", "api", "db", "test"]
 

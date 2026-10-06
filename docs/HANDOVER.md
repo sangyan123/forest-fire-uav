@@ -47,6 +47,7 @@ forest-fire-uav/
 | **媒体文件** | ⚠️ 只有元数据，无真实图片 |
 | **投放灭火弹** | ⚠️ **MOCK 投放器**（mock-uav 模拟弹药余量/投放半径校验与命中，无真实挂载；真实投放器属 Phase 9A，见 09 号第15章能力矩阵） |
 | **喊话警告** | ⚠️ **MOCK 喊话器**（mock-uav 模拟播报防火警告词并回传全文，无真实发声；真实喊话器/TTS 属 Phase 9A，播报词唯一来源 constants.yaml#loudspeaker_broadcast） |
+| **投放物资** | ⚠️ **MOCK 物资仓**（mock-uav 模拟空投与余量/在空校验，无真实挂载；真实物资仓属 Phase 9A，参数 constants.yaml#supply_drop，CommandType#DROP_SUPPLIES） |
 | **定时巡逻计划** | ⚠️ **后端内存态班次**（收敛循环每30s经命令链路自动 TAKEOFF/RETURN_HOME；计划重启回 application.yml 默认并自愈，真实任务计划系统/cron持久化属后续；正常窗口默认 08:00~18:00，禁期（封山期）日期范围+独立窗口经 REST 配置、默认 06:00~20:00，均 Asia/Shanghai，见 constants.yaml#patrol_schedule） |
 | **认证鉴权** | ❌ 未接（auth-v1.yaml 已冻结待启用） |
 | **WebSocket** | ❌ 前端 1~2s 轮询替代 |

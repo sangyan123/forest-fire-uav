@@ -96,6 +96,10 @@ let bombSeq = 0
 /* 喊话警告（LOUDSPEAKER_BROADCAST）：播报成功自增触发地图无人机📢气泡；播报全文由设备回执回传 */
 const broadcastPulse = ref(0)
 
+/* 投放物资（DROP_SUPPLIES）：余量来自模拟器 2s 轮询；投放成功脉冲驱动地图📦空投特效 */
+const suppliesRemaining = ref<number | null>(null)
+const supplyPulse = ref(0)
+
 /* 定时巡逻：10s 轮询班次状态（手动班次结束/开关自动回位由此反映） */
 const patrolSchedule = ref<PatrolScheduleView | null>(null)
 let patrolTimer: ReturnType<typeof setInterval> | undefined
@@ -472,6 +476,7 @@ async function pollSimulatorStatus(): Promise<void> {
   try {
     const raw = await getSimulatorStatus()
     ballsRemaining.value = parseBallRemaining(raw, ballsRemaining.value)
+    suppliesRemaining.value = parseSuppliesRemaining(raw, suppliesRemaining.value)
     if (scenarioPending.value !== null) return
     currentScenarioId.value = parseSimulatorStatus(raw)
   } catch {
@@ -487,6 +492,17 @@ function parseBallRemaining(raw: unknown, fallback: number | null): number | nul
   const ball = (payload as Record<string, unknown>).extinguishingBall
   if (typeof ball !== 'object' || ball === null) return fallback
   const n = Number((ball as Record<string, unknown>).remaining)
+  return Number.isFinite(n) ? n : fallback
+}
+
+/** 宽松解析模拟器状态里的应急物资余量（payload.supplies.remaining） */
+function parseSuppliesRemaining(raw: unknown, fallback: number | null): number | null {
+  if (typeof raw !== 'object' || raw === null) return fallback
+  const payload = (raw as Record<string, unknown>).payload
+  if (typeof payload !== 'object' || payload === null) return fallback
+  const supplies = (payload as Record<string, unknown>).supplies
+  if (typeof supplies !== 'object' || supplies === null) return fallback
+  const n = Number((supplies as Record<string, unknown>).remaining)
   return Number.isFinite(n) ? n : fallback
 }
 
@@ -747,6 +763,32 @@ async function refreshBallsRemaining(): Promise<number | null> {
   return ballsRemaining.value
 }
 
+/* ---------------- 投放物资（DROP_SUPPLIES，快捷指令） ---------------- */
+
+/** 投放物资命令终态：成功→📦空投特效+刷新余量；失败→设备回执原因（在地面/余量耗尽） */
+async function onSupplyTerminal(rec: CommandRecord): Promise<void> {
+  const status = String(rec.status ?? '').toUpperCase()
+  if (status !== 'SUCCESS' && status !== 'SUCCEEDED') {
+    pushToast('error', `投放未执行：${deviceFailMessage(rec)}`)
+    return
+  }
+  supplyPulse.value++
+  // 余量以模拟器为准（网关命令回执只透传 status/message，设备自定义字段不落地）
+  const remaining = await refreshSuppliesRemaining()
+  pushToast('success', `📦 应急物资已空投至无人机当前位置${remaining !== null ? `（剩余 ${remaining} 件）` : ''}`)
+}
+
+/** 主动刷新一次应急物资余量（模拟器 /simulator/status），返回当前余量 */
+async function refreshSuppliesRemaining(): Promise<number | null> {
+  try {
+    const raw = await getSimulatorStatus()
+    suppliesRemaining.value = parseSuppliesRemaining(raw, suppliesRemaining.value)
+  } catch {
+    // 拉取失败时保留上次值，2s 轮询会继续校正
+  }
+  return suppliesRemaining.value
+}
+
 async function onStatusChange(id: string, status: string): Promise<void> {
   try {
     await patchIncidentStatus(id, status)
@@ -858,12 +900,20 @@ async function sendCommand(
   }
 }
 
-function onQuick(commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME' | 'LOUDSPEAKER_BROADCAST'): void {
+function onQuick(commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME' | 'LOUDSPEAKER_BROADCAST' | 'DROP_SUPPLIES'): void {
   if (commandType === 'LOUDSPEAKER_BROADCAST') {
     // 喊话：终态提示由 onBroadcastTerminal 定制（展示设备回传的播报全文），屏蔽默认成功 toast
     void sendCommand('LOUDSPEAKER_BROADCAST', undefined, '📢 森林防护喊话', {
       silent: true,
       onTerminal: (final) => onBroadcastTerminal(final),
+    })
+    return
+  }
+  if (commandType === 'DROP_SUPPLIES') {
+    // 投放物资：终态提示由 onSupplyTerminal 定制（空投特效+余量刷新），屏蔽默认成功 toast
+    void sendCommand('DROP_SUPPLIES', undefined, '📦 投放物资', {
+      silent: true,
+      onTerminal: (final) => onSupplyTerminal(final),
     })
     return
   }
@@ -1016,6 +1066,7 @@ onUnmounted(() => {
         :balls-remaining="ballsRemaining"
         :bomb-blast="bombBlast"
         :broadcast-pulse="broadcastPulse"
+        :supply-pulse="supplyPulse"
         @goto="onGoto"
         @select-incident="onSelectFromMap"
         @verify="onVerify"
@@ -1034,6 +1085,7 @@ onUnmounted(() => {
         :incidents="incidents"
         :selected-incident-id="selectedIncidentId"
         :patrol-schedule="patrolSchedule"
+        :supplies-remaining="suppliesRemaining"
         @quick="onQuick"
         @select-incident="onSelectFromList"
         @toggle-patrol="onTogglePatrol"

@@ -13,10 +13,11 @@ const props = defineProps<{
   incidents: FireIncident[]
   selectedIncidentId: string | null
   patrolSchedule: PatrolScheduleView | null
+  suppliesRemaining: number | null
 }>()
 
 const emit = defineEmits<{
-  (e: 'quick', commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME' | 'LOUDSPEAKER_BROADCAST'): void
+  (e: 'quick', commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME' | 'LOUDSPEAKER_BROADCAST' | 'DROP_SUPPLIES'): void
   (e: 'select-incident', id: string): void
   (e: 'toggle-patrol', on: boolean): void
   (e: 'toggle-closure', payload: PatrolClosurePayload): void
@@ -129,6 +130,21 @@ const patrolStatusText = computed<string>(() => {
   return `⏱️ 待命 · ${planLabel}：每天 ${ps.startTime} 起飞巡逻 ${ps.durationHours} 小时`
 })
 
+/* ---------------- 投放物资（空中一键空投） ---------------- */
+
+/** 视为"不在空中"的设备状态（含离线/故障）；设备侧仍有兜底校验，拒绝原因经 toast 展示 */
+const GROUNDED_STATUSES = new Set(['IDLE', 'STANDBY', 'LANDED', 'GROUNDED', 'CHARGING', 'OFFLINE', 'ERROR'])
+
+const supplyDisabled = computed(() => {
+  if (props.suppliesRemaining === 0) return true
+  if (props.state === null) return true
+  return GROUNDED_STATUSES.has(String(props.state.status ?? '').toUpperCase())
+})
+
+const supplyLabel = computed(() =>
+  props.suppliesRemaining === null ? '📦 投放物资' : `📦 投放物资（剩 ${props.suppliesRemaining} 件）`,
+)
+
 function chipClass(status: string): string {
   const s = status.toUpperCase()
   if (s === 'SUCCESS' || s === 'SUCCEEDED') return 's-success'
@@ -191,6 +207,12 @@ function timeText(ts: number): string {
       </div>
       <div class="btn-row btn-row-stack">
         <button class="cmd-btn cmd-btn-broadcast" @click="$emit('quick', 'LOUDSPEAKER_BROADCAST')">📢 防护喊话</button>
+        <button
+          class="cmd-btn"
+          :disabled="supplyDisabled"
+          :title="supplyDisabled ? '需无人机在空中且有余量方可空投' : '向无人机当前位置空投应急物资包'"
+          @click="$emit('quick', 'DROP_SUPPLIES')"
+        >{{ supplyLabel }}</button>
       </div>
       <div class="patrol-row btn-row-stack">
         <div class="patrol-text">
@@ -228,7 +250,7 @@ function timeText(ts: number): string {
         <input class="closure-input closure-narrow" type="number" min="1" max="23" v-model="cHours" @input="cDirty = true" title="禁期每日巡逻时长（小时）" />
         <button class="cmd-btn closure-apply" @click="applyClosure">应用</button>
       </div>
-      <p class="hint">提示：在左侧地图上点击任意位置可下发 GOTO 指令；巡检发现可疑人员可随时喊话警告。</p>
+      <p class="hint">提示：在左侧地图上点击任意位置可下发 GOTO 指令；巡检发现可疑人员可随时喊话警告，发现受伤/受困人员可空投应急物资。</p>
     </section>
 
     <section class="card">

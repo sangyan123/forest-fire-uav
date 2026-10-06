@@ -93,6 +93,7 @@ export const CMD_TYPE_ZH: Record<string, string> = {
   RESUME: '恢复任务',
   DROP_EXTINGUISHING_BALL: '投放灭火弹',
   LOUDSPEAKER_BROADCAST: '森林防护喊话',
+  DROP_SUPPLIES: '投放物资',
 }
 
 export function zhCmdType(s?: string | null): string {

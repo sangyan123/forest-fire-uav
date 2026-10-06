@@ -90,8 +90,8 @@
     },
     "CoreCommandType": {
       "type": "string",
-      "description": "V1核心命令集11值=原9值+DROP_EXTINGUISHING_BALL+LOUDSPEAKER_BROADCAST（enums.yaml#CommandType enums-v1.2，owner=05+09）；扩展命令11项见05号第40章，须经09号能力矩阵确认",
-      "enum": ["TAKEOFF", "LAND", "GOTO", "GIMBAL_LOOK_AT", "CAPTURE_RGB", "CAPTURE_THERMAL", "RETURN_HOME", "PAUSE", "RESUME", "DROP_EXTINGUISHING_BALL", "LOUDSPEAKER_BROADCAST"]
+      "description": "V1核心命令集12值=原9值+DROP_EXTINGUISHING_BALL+LOUDSPEAKER_BROADCAST+DROP_SUPPLIES（enums.yaml#CommandType enums-v1.3，owner=05+09）；扩展命令11项见05号第40章，须经09号能力矩阵确认",
+      "enum": ["TAKEOFF", "LAND", "GOTO", "GIMBAL_LOOK_AT", "CAPTURE_RGB", "CAPTURE_THERMAL", "RETURN_HOME", "PAUSE", "RESUME", "DROP_EXTINGUISHING_BALL", "LOUDSPEAKER_BROADCAST", "DROP_SUPPLIES"]
     },
     "Device": {
       "type": "object",

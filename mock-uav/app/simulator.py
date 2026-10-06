@@ -103,6 +103,12 @@ LOUDSPEAKER_BROADCAST_DEFAULT_MESSAGE = (
 )
 LOUDSPEAKER_BROADCAST_DURATION_S = 5
 
+# 机载应急物资仓（镜像 docs/00-doc/constants.yaml#supply_drop，2026-10-06 demo 增补；
+# 真实物资仓待 Phase 9A）：capacity 机载物资包数（耗尽后 DROP_SUPPLIES 命令 FAILED）、
+# item_name 物资包内容描述（回执 result.item 回传展示）。
+SUPPLY_DROP_CAPACITY = 3
+SUPPLY_DROP_ITEM_NAME = "应急救援物资包（急救包/饮用水/应急口粮）"
+
 # Demo verdict lines: FALSE_ALARM is the "false alarm" demo run. Both lines fly and capture
 # identically; only media.metadata.scenarioType (consumed by the backend demo) differs.
 SCENARIO_VERDICTS = ("CONFIRMED", "FALSE_ALARM")
@@ -224,6 +230,7 @@ class Simulator:
         self._rgb_since_thermal = 0
         self._media_count = 0
         self._balls_remaining = EXTINGUISHING_BALL_CAPACITY  # 灭火弹余量（constants.yaml#extinguishing_ball）
+        self._supplies_remaining = SUPPLY_DROP_CAPACITY  # 应急物资余量（constants.yaml#supply_drop）
 
         # scenario-06 comms silence (UAV 断联): while silent, no MQTT message is published
         self._comms_silent = False
@@ -605,6 +612,8 @@ class Simulator:
             self._handle_drop_ball(command_id, payload)
         elif command_type == "LOUDSPEAKER_BROADCAST":
             self._handle_loudspeaker_broadcast(command_id, payload)
+        elif command_type == "DROP_SUPPLIES":
+            self._handle_drop_supplies(command_id)
         else:
             log.warning("Unknown commandType %s (commandId=%s)", command_type, command_id)
             self._publish_result(command_id, "FAILED", {"message": f"unknown commandType: {command_type}"})
@@ -664,6 +673,34 @@ class Simulator:
             "incidentId": incident_id,
             "remaining": remaining,
             "capacity": EXTINGUISHING_BALL_CAPACITY,
+        })
+
+    def _handle_drop_supplies(self, command_id: str) -> None:
+        """DROP_SUPPLIES（enums.yaml#CommandType 第12项，constants.yaml#supply_drop）。
+
+        向无人机当前位置投放一份机载应急物资包（MOCK：不真实抛投，仅模拟空投语义，
+        用于巡检发现受伤/受困人员或地面队伍需要补给时的应急支援）。机载安全校验按序：
+        ① 无人机在空中（LANDED 状态无法空投）；② 物资余量 >0。任一不满足即 FAILED
+        （附原因，前端 toast 引导）；合法投放扣减余量并回 SUCCESS，result 带投放点
+        经纬度与 remaining 供前端特效/余量联动。
+        """
+        if self._flight_status == "LANDED":
+            self._publish_result(command_id, "FAILED",
+                                 {"message": "无人机在地面，无法空投物资（请先起飞）"})
+            return
+        if self._supplies_remaining <= 0:
+            self._publish_result(command_id, "FAILED", {"message": "机载应急物资已投放完毕"})
+            return
+        self._supplies_remaining -= 1
+        remaining = self._supplies_remaining
+        log.info("Supply drop at (%.6f, %.6f): %s remaining=%d",
+                 self._latitude, self._longitude, SUPPLY_DROP_ITEM_NAME, remaining)
+        self._publish_result(command_id, "SUCCESS", {
+            "latitude": round(self._latitude, 6),
+            "longitude": round(self._longitude, 6),
+            "item": SUPPLY_DROP_ITEM_NAME,
+            "remaining": remaining,
+            "capacity": SUPPLY_DROP_CAPACITY,
         })
 
     def _publish_result(self, command_id: str, status: str, result: dict) -> None:
@@ -1093,6 +1130,10 @@ class Simulator:
                 "extinguishingBall": {
                     "remaining": self._balls_remaining,
                     "capacity": EXTINGUISHING_BALL_CAPACITY,
+                },
+                "supplies": {
+                    "remaining": self._supplies_remaining,
+                    "capacity": SUPPLY_DROP_CAPACITY,
                 },
             },
             "sequence": self._sequence,

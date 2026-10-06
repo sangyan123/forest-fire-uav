@@ -31,9 +31,12 @@ vendor_safety_profile:
     - "真实设备接入（Phase 9A）时按机型定义。"
 
 command_safety:
-  control_commands: [TAKEOFF, GOTO, RETURN_HOME, PAUSE, RESUME, DROP_EXTINGUISHING_BALL, LOUDSPEAKER_BROADCAST]
+  control_commands: [TAKEOFF, GOTO, RETURN_HOME, PAUSE, RESUME, DROP_EXTINGUISHING_BALL, LOUDSPEAKER_BROADCAST, DROP_SUPPLIES]
   required_permission: "uav:command"     # 基线第59章；全部控制行为写入AuditLog
 
 extinguishing_ball:            # 镜像 docs/00-doc/constants.yaml#extinguishing_ball（2026-10-05 demo增补）
   capacity: 3                  # 机载灭火弹挂载数量（耗尽后 DROP_EXTINGUISHING_BALL 命令 FAILED）
   drop_max_radius_m: 150       # 投放安全半径：与目标点距离超限则命令 FAILED（mock-uav 执行校验）
+
+supply_drop:                   # 镜像 docs/00-doc/constants.yaml#supply_drop（2026-10-06 demo增补）
+  capacity: 3                  # 机载应急物资包挂载数量（耗尽后 DROP_SUPPLIES 命令 FAILED；mock-uav 执行校验）

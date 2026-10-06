@@ -57,6 +57,8 @@ const props = defineProps<{
   bombBlast: { incidentId: string; seq: number } | null
   /** 每次喊话播报成功自增，触发无人机📢语音气泡特效 */
   broadcastPulse: number
+  /** 每次投放物资成功自增，触发无人机📦空投特效 */
+  supplyPulse: number
 }>()
 
 const emit = defineEmits<{
@@ -476,6 +478,30 @@ watch(
       icon,
       interactive: false,
       zIndexOffset: 800,
+    }).addTo(map)
+    window.setTimeout(() => m.remove(), 4000)
+  },
+)
+
+/** 投放物资特效：无人机当前位置挂🪂📦空投动画（CSS 下落+落地微尘约 4s 自消），落点即投放时机位 */
+watch(
+  () => props.supplyPulse,
+  () => {
+    if (!map || props.supplyPulse <= 0) return
+    const s = props.state
+    if (!s || s.latitude == null || s.longitude == null) return
+    const icon = L.divIcon({
+      className: 'supply-div-icon',
+      html:
+        '<div class="uav-supply-wrap"><div class="uav-supply-drop">' +
+        '<span class="us-chute">🪂</span><span class="us-box">📦</span>' +
+        '</div></div>',
+      iconSize: [0, 0],
+    })
+    const m = L.marker([s.latitude, s.longitude], {
+      icon,
+      interactive: false,
+      zIndexOffset: 850,
     }).addTo(map)
     window.setTimeout(() => m.remove(), 4000)
   },
