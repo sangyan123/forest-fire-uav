@@ -81,7 +81,9 @@ public class DeviceService {
 
         Double latitude = latest != null ? latest.getLatitude() : device.getCurrentLatitude();
         Double longitude = latest != null ? latest.getLongitude() : device.getCurrentLongitude();
-        Double altitude = latest != null ? latest.getHeight() : device.getCurrentHeight();
+        // altitude：相对高度（telemetry.relative_height ← position.relativeAltitude，落地为 0），
+        // 与前端 GOTO 面板 RELATIVE_TO_TAKEOFF 语义一致；无遥测时退回 device.currentHeight（绝对高度）
+        Double altitude = latest != null ? latest.getRelativeHeight() : device.getCurrentHeight();
         Double heading = latest != null ? latest.getHeading() : null;
         Double speed = latest != null ? latest.getHorizontalSpeed() : null;
         java.math.BigDecimal battery = latest != null

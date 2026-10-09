@@ -65,6 +65,8 @@ MODEL = "Forest-UAV-T1"
 HOME_LAT = 30.1200
 HOME_LON = 114.1200
 HOME_ALTITUDE = 260.0
+GROUND_ELEVATION_M = 225.42  # 停机坪地面标高：absoluteAltitude = groundElevation + relativeAltitude
+PATROL_ALTITUDE_M = 100.0    # 巡逻相对高度（LANDED → 0m，TAKEOFF → 100m）
 
 CRUISE_SPEED_MPS = 12.0  # 2026-10-05 demo 调整（原 8.0）：配合巡逻区放大保持移动感；火情转场仍 15 m/s
 TICK_SECONDS = 1.0
@@ -194,6 +196,7 @@ class Simulator:
         self._heading = 0.0
         self._moving = False
         self._speed_mps = CRUISE_SPEED_MPS
+        self._relative_altitude_m = PATROL_ALTITUDE_M  # 初始空中巡逻
 
         # battery: 100%, -1/60 per tick, floor 5
         self._battery = 100.0
@@ -329,6 +332,7 @@ class Simulator:
         self._flight_mode = "WAYLINE"
         self._flight_status = "FLYING"
         self._armed = True
+        self._relative_altitude_m = PATROL_ALTITUDE_M  # 场景起飞：若原为停机状态恢复空中高度
         self._goto_started_at = None
         self._pending_command_id = None
         log.info("Fire scenario started: fire point (%s, %s), transit at %.1f m/s",
@@ -580,6 +584,7 @@ class Simulator:
                 self._waypoint_index = self._nearest_waypoint_index()
                 self._flight_mode = "WAYLINE"
                 self._speed_mps = CRUISE_SPEED_MPS
+                self._relative_altitude_m = PATROL_ALTITUDE_M
                 log.info("Takeoff from ground: resumed wayline patrol at nearest waypoint")
             elif self._flight_mode not in ("GOTO", "RETURN_HOME", "WAYLINE"):
                 self._flight_mode = "HOVER"
@@ -587,6 +592,7 @@ class Simulator:
         elif command_type == "LAND":
             self._flight_status = "LANDED"
             self._flight_mode = "AUTO_LAND"
+            self._relative_altitude_m = 0.0  # 落地：相对高度归零
             self._target = None
             self._pending_command_id = None
             if self._fire_scenario["active"]:
@@ -747,6 +753,7 @@ class Simulator:
                             self.stop_fire_scenario()
                         self._flight_mode = "AUTO_LAND"
                         self._flight_status = "LANDED"
+                        self._relative_altitude_m = 0.0  # 归巢落地：相对高度归零
                         log.info("Returned home: auto-landed at home point (charging)")
                     else:
                         self._flight_mode = "HOVER"
@@ -848,9 +855,9 @@ class Simulator:
             "position": {
                 "latitude": round(self._latitude, 6),
                 "longitude": round(self._longitude, 6),
-                "absoluteAltitude": 325.42,
-                "relativeAltitude": 100.0,
-                "groundElevation": 225.42,
+                "absoluteAltitude": round(GROUND_ELEVATION_M + self._relative_altitude_m, 2),
+                "relativeAltitude": round(self._relative_altitude_m, 1),
+                "groundElevation": GROUND_ELEVATION_M,
                 "horizontalAccuracy": 0.8,
                 "verticalAccuracy": 1.2,
             },
