@@ -21,7 +21,7 @@
 # =====================================================================
 
 meta:
-  file_version: constants-v1.5
+  file_version: constants-v1.6
   baseline: "00 跨文档设计基线与矛盾修订清单 V1.3（docs/00-doc/active/00_跨文档设计基线_V1.3.md）"
   created: 2026-09-27
   status: "V1 Engineering Baseline（工程基线，非科学结论）"
@@ -165,6 +165,72 @@ constants:
     capacity: 3                       # 机载应急物资包挂载数量（耗尽后命令 FAILED）
     item_name: "应急救援物资包（急救包/饮用水/应急口粮）"   # 物资包内容描述（回执 result.item 回传展示）
     consumers: ["doc-03", "doc-05", "doc-09", "mock-uav", "frontend"]
+
+  # -------------------------------------------------------------------
+  # 10. F07 风险评估参数（2026-10-09 页面聚合设计增补，无基线章节）
+  #    来源: 火情风险检测页面聚合设计（F07+F11+F08，03号新增章节）；
+  #    网格自动划分（用户决策 2026-10-09）、气象数据源 mock（用户决策）。
+  #    数值属 V1 工程基线，正式投产前按第32章实验协议重定。
+  #    镜像目标: backend application.yml（risk.*，env 可覆盖）+ ai-service mock
+  # -------------------------------------------------------------------
+  risk_assessment:
+    baseline_chapter: "无（页面聚合设计增补，登记 change-log 2026-10-09）"
+    weights:                          # 五因子权重（和=1.0），对应 03号第15.4节公式
+      historical: 0.30                # 历史火点/火灾次数/违规用火
+      weather: 0.25                   # 温度/湿度/风（气象 mock 数据源）
+      vegetation: 0.20                # 植被类型/郁闭度
+      terrain: 0.15                   # 坡度/坡向/地形
+      human_activity: 0.10            # 道路/景区/居民区/施工区域
+    score_range: "0~100（各因子归一化到 0~100 后加权）"
+    level_thresholds:
+      high_min: 70                    # risk_score >= 70 → RiskLevel.HIGH
+      medium_min: 40                  # 40 <= risk_score < 70 → RiskLevel.MEDIUM；< 40 → LOW
+    grid:
+      cell_size_m: 1000               # 网格自动划分边长（用户决策：网格自动划分，一期不支持手工圈定）
+      origin_lat: 30.12               # 网格原点（演示区左下角，与离线瓦片范围对齐）
+      origin_lon: 114.12
+      grid_cols: 5                    # 演示范围横向网格数（约 5km）
+      grid_rows: 5                    # 纵向网格数（约 5km）
+    assess_trigger: "on_demand + 建议周期 30min（一期由页面手动触发 + 后端启动时初始化一次）"
+    consumers: ["doc-03", "doc-04", "backend", "ai-service", "frontend", "db"]
+
+  # -------------------------------------------------------------------
+  # 11. F11 火势趋势预测参数（2026-10-09 页面聚合设计增补，无基线章节）
+  #    来源: 页面聚合设计；一期 Level 1 规则椭圆扩散模型（03号第19.4节）。
+  #    硬约束: 气象数据源与 DJI 遥测 wind_speed 分离（03号第19.3节），
+  #    本段参数的 wind 输入一律来自气象 mock，不得读机载遥测。
+  # -------------------------------------------------------------------
+  fire_prediction:
+    baseline_chapter: "无（页面聚合设计增补，登记 change-log 2026-10-09）"
+    forecast_horizons_min: [30, 60]   # 预测档位（分钟）
+    spread_model:
+      base_spread_rate_m_per_min: 1.5     # 无风平地火线蔓延速度（工程基线）
+      wind_speed_factor_per_mps: 0.20     # 沿风分量每 1 m/s 蔓延速度放大的比例
+      uphill_factor: 1.30                 # 上坡方向速度系数
+      downhill_factor: 0.80               # 下坡方向速度系数
+      length_width_ratio_base: 1.5        # 椭圆长短轴比基准
+      length_width_ratio_per_mps: 0.25    # 风速每 1 m/s 长短轴比增量（上限 3.0）
+      length_width_ratio_max: 3.0
+    confidence_base: 0.78             # Level 1 规则模型置信度基准（03号第19.5节示例 0.78）
+    trigger: "auto_on_verification_round + manual_rerun（用户决策：核验轮次自动触发 + 页面可手动重跑）"
+    weather_source: "mock（用户决策 2026-10-09；二期留 adapter 接真实气象 API）"
+    consumers: ["doc-03", "doc-06", "backend", "ai-service", "frontend", "db"]
+
+  # -------------------------------------------------------------------
+  # 12. F08 巡检建议生成参数（2026-10-09 页面聚合设计增补，无基线章节）
+  #    来源: 页面聚合设计；一期"区域排序 + 规则生成航点"（03号第16.3节）。
+  # -------------------------------------------------------------------
+  patrol_suggestion:
+    baseline_chapter: "无（页面聚合设计增补，登记 change-log 2026-10-09）"
+    lane_spacing_m: 80                # 覆盖航线间距（100m 相对高度约定扫幅下的工程值）
+    coverage_altitude_m: 100          # 建议航点相对高度（与巡逻高度一致）
+    cruise_speed_mps: 9               # 估时用巡航速度（与 mock-uav CRUISE_SPEED_MPS 一致）
+    top_n_suggestions: 5              # 单次生成最多返回的建议数（按 risk_score 降序取前 N）
+    poll_intervals_ms:                # 火情风险检测页前端轮询（风险变化慢，低于火情页 1~2s 量级）
+      risk_areas: 60000
+      predictions: 120000
+      suggestions: 30000
+    consumers: ["doc-03", "backend", "ai-service", "frontend", "db"]
 
 # ---------------------------------------------------------------------
 # pointers：不属于本文件的数值参数去向（防止同一数字多处维护）

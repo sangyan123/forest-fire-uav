@@ -21,7 +21,7 @@
 # =====================================================================
 
 meta:
-  file_version: enums-v1.3
+  file_version: enums-v1.4
   baseline: "00 跨文档设计基线与矛盾修订清单 V1.3（docs/00-doc/active/00_跨文档设计基线_V1.3.md）"
   created: 2026-09-27
   owner_of_this_file: "00号基线（治理方）；各枚举语义归各 owner 文档"
@@ -416,3 +416,47 @@ enums:
     notes:
       - "每个 AlgorithmTask 记录 modelVersion + configVersion + datasetVersion 三件套（04号V1.2 第13.3节）。"
     consumers: ["doc-03", "doc-04", "doc-06", "ai-service", "backend", "db"]
+
+  # -------------------------------------------------------------------
+  # 13. RiskLevel 风险等级
+  # -------------------------------------------------------------------
+  RiskLevel:
+    owner: "03 功能详细技术设计文档（V1.x 第15章 F07 风险评估）"
+    source: "03号第15.6节输出示例 riskLevel 字段；数值阈值见 constants.yaml risk_assessment 段"
+    description: "风险区域（risk_area）与评估记录（risk_area_assessment）的风险等级，由五因子加权评分 RiskScore 映射。"
+    status: "CANDIDATE — 随火情风险检测页面聚合设计（03号新增章节）V1 候选，待03号修订正式冻结"
+    values:
+      - name: HIGH
+        desc: "高风险（优先关注/优先巡检）"
+      - name: MEDIUM
+        desc: "中风险"
+      - name: LOW
+        desc: "低风险"
+    transitions: "随评估重算单调重映射（非状态机）：HIGH ⇄ MEDIUM ⇄ LOW"
+    notes:
+      - "分数到等级的映射阈值（≥70 HIGH / ≥40 MEDIUM / <40 LOW）唯一基线见 constants.yaml risk_assessment.level_thresholds。"
+      - "前端风险图层填色（红/橙/绿）按本枚举渲染。"
+    consumers: ["doc-03", "doc-04", "backend", "ai-service", "frontend", "db"]
+
+  # -------------------------------------------------------------------
+  # 14. PatrolSuggestionStatus 巡检建议状态
+  # -------------------------------------------------------------------
+  PatrolSuggestionStatus:
+    owner: "03 功能详细技术设计文档（V1.x 第16章 F08 智能巡检生成 / 页面聚合设计章节）"
+    source: "04号 patrol_area 表 status 字段（VARCHAR(32)）；值集由页面聚合设计推导"
+    description: "巡检建议（patrol_area，由 F08 从风险区域生成）的生命周期状态。生成≠下发：建议可驳回、可过期，下发后关联 mission。"
+    status: "CANDIDATE — V1 候选，待03/04号修订正式冻结"
+    values:
+      - name: SUGGESTED
+        desc: "已生成未处置（等待人工生成任务或驳回）"
+      - name: DISPATCHED
+        desc: "已下发（已创建 mission 并回填 mission_id）"
+      - name: DISMISSED
+        desc: "已驳回（人工不采纳）"
+      - name: EXPIRED
+        desc: "已过期（评估更新后建议失效）"
+    transitions: "SUGGESTED → DISPATCHED | DISMISSED | EXPIRED"
+    notes:
+      - "DISPATCHED 时回填 mission.id（patrol_area 表无 mission_id 列，关联由应用层经 reason JSONB 记录 missionId 或由后续迁移补列，本版采用 reason JSONB 记录）。"
+      - "评估重算（risk_area_assessment 新版本落库）后，旧建议置 EXPIRED。"
+    consumers: ["doc-03", "doc-04", "backend", "frontend", "db"]

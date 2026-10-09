@@ -91,6 +91,54 @@ public final class GeoUtils {
         return out;
     }
 
+    /** [lat,lon] 闭合环 → geometry(Polygon,4326)（patrol_area.geometry 列；未闭合自动闭合） */
+    public static Polygon toPolygon(List<double[]> ring) {
+        if (ring == null || ring.size() < 3) {
+            throw new IllegalArgumentException("ring must contain at least 3 [lat,lon] points");
+        }
+        Coordinate[] coords = new Coordinate[ring.size()];
+        for (int i = 0; i < ring.size(); i++) {
+            coords[i] = new Coordinate(ring.get(i)[1], ring.get(i)[0]); // [lat,lon] → (x=lon, y=lat)
+        }
+        if (!coords[0].equals2D(coords[coords.length - 1])) {
+            Coordinate[] closed = new Coordinate[coords.length + 1];
+            System.arraycopy(coords, 0, closed, 0, coords.length);
+            closed[coords.length] = new Coordinate(coords[0]);
+            coords = closed;
+        }
+        return GEOMETRY_FACTORY.createPolygon(coords);
+    }
+
+    /** MultiPolygon 首个多边形（patrol_area.geometry(Polygon) 取网格矩形用；空返回 null） */
+    public static Polygon firstPolygonOf(MultiPolygon multiPolygon) {
+        if (multiPolygon == null || multiPolygon.isEmpty()
+                || !(multiPolygon.getGeometryN(0) instanceof Polygon polygon)) {
+            return null;
+        }
+        return polygon;
+    }
+
+    /** Polygon 外环 → GeoJSON [lat,lon] 坐标数组（建议视图用；空返回 null） */
+    public static List<List<Double>> polygonToGeoJson(Polygon polygon) {
+        if (polygon == null || polygon.isEmpty()) {
+            return null;
+        }
+        List<List<Double>> out = new ArrayList<>();
+        for (Coordinate c : polygon.getExteriorRing().getCoordinates()) {
+            out.add(List.of(c.y, c.x)); // 还原 [lat,lon] 顺序
+        }
+        return out;
+    }
+
+    /** 几何外接框 [minLat, minLon, maxLat, maxLon]（JTS x=lon, y=lat；空返回 null） */
+    public static double[] envelopeLatLon(Geometry geometry) {
+        if (geometry == null || geometry.isEmpty()) {
+            return null;
+        }
+        var env = geometry.getEnvelopeInternal();
+        return new double[]{env.getMinY(), env.getMinX(), env.getMaxY(), env.getMaxX()};
+    }
+
     /** 由面积反推等效半径（米）：r=√(A/π)（fire_polygon 无半径列，查询侧派生） */
     public static Double radiusFromArea(Double areaSquareMeters) {
         return areaSquareMeters == null ? null : Math.sqrt(areaSquareMeters / Math.PI);

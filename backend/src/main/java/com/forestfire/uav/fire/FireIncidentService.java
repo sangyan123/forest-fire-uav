@@ -116,6 +116,7 @@ public class FireIncidentService {
     private final FirePolygonRepository polygonRepository;
     private final UavDeviceRepository deviceRepository;
     private final AiServiceClient aiServiceClient;
+    private final com.forestfire.uav.risk.PredictionService predictionService;
 
     public FireIncidentService(FireIncidentRepository incidentRepository,
                                FirePointRepository pointRepository,
@@ -123,7 +124,8 @@ public class FireIncidentService {
                                FireVerificationRepository verificationRepository,
                                FirePolygonRepository polygonRepository,
                                UavDeviceRepository deviceRepository,
-                               AiServiceClient aiServiceClient) {
+                               AiServiceClient aiServiceClient,
+                               com.forestfire.uav.risk.PredictionService predictionService) {
         this.incidentRepository = incidentRepository;
         this.pointRepository = pointRepository;
         this.detectionRepository = detectionRepository;
@@ -131,6 +133,7 @@ public class FireIncidentService {
         this.polygonRepository = polygonRepository;
         this.deviceRepository = deviceRepository;
         this.aiServiceClient = aiServiceClient;
+        this.predictionService = predictionService;
     }
 
     // ---------------- 1. 去重 / 事件登记 ----------------
@@ -496,6 +499,24 @@ public class FireIncidentService {
         // UNCERTAIN → 保持 VERIFYING（需人工复核，状态不变故不追加历史）
         incident.setUpdatedAt(now);
         incidentRepository.save(incident);
+
+        // F11 自动预测钩子（03号第91.1节用户决策：F04 每个核验轮次落库后自动预测）。
+        // 注册 afterCommit：预测服务为 REQUIRES_NEW 独立事务，必须等本事务提交后才能
+        // 读到 incident；失败仅告警，不影响核验主流程。
+        if (org.springframework.transaction.support.TransactionSynchronizationManager
+                .isSynchronizationActive()) {
+            FireIncidentEntity firedIncident = incident;
+            org.springframework.transaction.support.TransactionSynchronizationManager
+                    .registerSynchronization(
+                            new org.springframework.transaction.support.TransactionSynchronization() {
+                                @Override
+                                public void afterCommit() {
+                                    predictionService.autoRunAfterVerification(firedIncident);
+                                }
+                            });
+        } else {
+            predictionService.autoRunAfterVerification(incident);
+        }
 
         return toVerificationView(v, incident.getStatus(), scenarioType, evidenceSource);
     }

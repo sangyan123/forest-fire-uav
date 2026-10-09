@@ -2,6 +2,7 @@
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import InfoPanel from './components/InfoPanel.vue'
 import MapView from './components/MapView.vue'
+import RiskPage from './components/RiskPage.vue'
 import Toasts from './components/Toasts.vue'
 import {
   createMission,
@@ -68,6 +69,11 @@ const NAV_TABS = [
         id: 'risk',
         label: '火情风险检测',
         icon: '/huo.png',
+      },
+      {
+        id: 'disaster-check',
+        label: '灾后情况检测',
+        icon: '/zaihou.png',
       },
       {
         id: 'anomaly-person',
@@ -1225,10 +1231,7 @@ onUnmounted(() => {
         />
       </main>
       <main v-if="activeTab === 'risk'" class="content risk-page">
-        <div class="risk-placeholder">
-          <img class="risk-icon" src="/huo.png" alt="" />
-          <p>火情风险检测（F07）功能建设中</p>
-        </div>
+        <RiskPage @jump-fire="activeTab = 'fire'" />
       </main>
       <main v-if="activeTab === 'uav-manage-device'" class="content risk-page">
         <div class="risk-placeholder">
@@ -1240,6 +1243,12 @@ onUnmounted(() => {
         <div class="risk-placeholder">
           <img class="risk-icon" src="/wurenjizhan.png" alt="" />
           <p>无人机站管理功能建设中</p>
+        </div>
+      </main>
+      <main v-if="activeTab === 'disaster-check'" class="content risk-page">
+        <div class="risk-placeholder">
+          <img class="risk-icon" src="/zaihou.png" alt="" />
+          <p>灾后情况检测功能建设中</p>
         </div>
       </main>
       <main v-if="activeTab === 'anomaly-person'" class="content risk-page">

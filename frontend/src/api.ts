@@ -241,3 +241,132 @@ export function missionIdOf(record: MissionRecord | null | undefined): string | 
   const s = String(v)
   return s || null
 }
+
+/* ---------------- 火情风险检测页（F07+F11+F08，03号第91章） ---------------- */
+
+/** 风险区域（risk_area 行） */
+export interface RiskArea {
+  areaId: string
+  areaCode: string
+  areaName: string
+  /** [lat,lon] 闭合环（GeoJSON 外环，Leaflet 直接可用） */
+  geometry: [number, number][] | null
+  riskScore: number | null
+  riskLevel: 'HIGH' | 'MEDIUM' | 'LOW' | null
+  evaluationTime: string | null
+}
+
+/** 五因子分项（risk_feature 行） */
+export interface RiskFactor {
+  featureType: string
+  featureValue: number | null
+  weight: number | null
+  contribution: number | null
+  source: string | null
+}
+
+/** 区域详情 = 区域字段 + factors */
+export type RiskAreaDetail = RiskArea & { factors: RiskFactor[] }
+
+/** 评估摘要（POST /risk/assess） */
+export interface RiskAssessSummary {
+  assessedCount: number
+  highCount: number
+  mediumCount: number
+  lowCount: number
+  assessedAt: string
+}
+
+/** 火势预测（fire_prediction 行） */
+export interface FirePrediction {
+  predictionId: string
+  incidentId: string
+  baseTime: string
+  forecastMinutes: number
+  predictedGeometry: [number, number][] | null
+  predictedAreaSquareMeter: number | null
+  confidence: number | null
+  environmentalInput: Record<string, unknown> | null
+  predictionResult: Record<string, unknown> | null
+  createdAt: string
+}
+
+/** 巡检建议航点 */
+export interface SuggestionWaypoint {
+  sequenceNo: number
+  latitude: number
+  longitude: number
+  altitude: number
+}
+
+/** 巡检建议（patrol_area 行 + 区域摘要） */
+export interface PatrolSuggestion {
+  suggestionId: string
+  riskAreaId: string
+  areaCode: string | null
+  riskScore: number | null
+  geometry: [number, number][] | null
+  waypoints: SuggestionWaypoint[]
+  priority: number | null
+  estimatedDurationMin: number | null
+  status: 'SUGGESTED' | 'DISPATCHED' | 'DISMISSED' | 'EXPIRED'
+  missionId: string | null
+  generatedAt: string
+}
+
+export function getRiskAreas(level?: string): Promise<RiskArea[]> {
+  const q = level ? `?level=${encodeURIComponent(level)}` : ''
+  return request<RiskArea[]>(`/api/v1/risk/areas${q}`)
+}
+
+export function getRiskAreaDetail(areaId: string): Promise<RiskAreaDetail> {
+  return request<RiskAreaDetail>(`/api/v1/risk/areas/${encodeURIComponent(areaId)}`)
+}
+
+export function postRiskAssess(): Promise<RiskAssessSummary> {
+  return request<RiskAssessSummary>('/api/v1/risk/assess', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: '{}',
+  })
+}
+
+export function getLatestPredictions(incidentId?: string): Promise<FirePrediction[]> {
+  const q = incidentId ? `?incidentId=${encodeURIComponent(incidentId)}` : ''
+  return request<FirePrediction[]>(`/api/v1/predictions/latest${q}`)
+}
+
+export function postPredictionRun(incidentId?: string): Promise<FirePrediction[]> {
+  return request<FirePrediction[]>('/api/v1/predictions/run', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(incidentId ? { incidentId } : {}),
+  })
+}
+
+export function getPatrolSuggestions(status?: string): Promise<PatrolSuggestion[]> {
+  const q = status ? `?status=${encodeURIComponent(status)}` : ''
+  return request<PatrolSuggestion[]>(`/api/v1/patrol-suggestions${q}`)
+}
+
+export function postPatrolSuggestionsGenerate(areaIds?: string[]): Promise<PatrolSuggestion[]> {
+  return request<PatrolSuggestion[]>('/api/v1/patrol-suggestions/generate', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(areaIds && areaIds.length ? { areaIds } : {}),
+  })
+}
+
+export function postPatrolSuggestionDispatch(suggestionId: string): Promise<unknown> {
+  return request<unknown>(
+    `/api/v1/patrol-suggestions/${encodeURIComponent(suggestionId)}/dispatch`,
+    { method: 'POST', headers: JSON_HEADERS, body: '{}' },
+  )
+}
+
+export function postPatrolSuggestionDismiss(suggestionId: string): Promise<PatrolSuggestion> {
+  return request<PatrolSuggestion>(
+    `/api/v1/patrol-suggestions/${encodeURIComponent(suggestionId)}/dismiss`,
+    { method: 'POST', headers: JSON_HEADERS, body: '{}' },
+  )
+}

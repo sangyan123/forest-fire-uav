@@ -66,6 +66,42 @@ patrol:
     closure-duration-hours: ${PATROL_CLOSURE_DURATION_HOURS:14}
     zone: ${PATROL_ZONE:Asia/Shanghai}
 
+risk:
+  # 火情风险检测页参数（2026-10-09 页面聚合设计，默认值机器来源 constants.yaml v1.6
+  # risk_assessment / fire_prediction / patrol_suggestion 三段，03号第91章）
+  grid:
+    # 网格自动划分：原点=演示区左下角，1km×1km，5×5=25 格
+    cell-size-m: ${RISK_GRID_CELL_SIZE_M:1000}
+    origin-lat: ${RISK_GRID_ORIGIN_LAT:30.12}
+    origin-lon: ${RISK_GRID_ORIGIN_LON:114.12}
+    grid-cols: ${RISK_GRID_COLS:5}
+    grid-rows: ${RISK_GRID_ROWS:5}
+  weights:
+    # F07 五因子权重（和=1.0）
+    historical: ${RISK_W_HISTORICAL:0.30}
+    weather: ${RISK_W_WEATHER:0.25}
+    vegetation: ${RISK_W_VEGETATION:0.20}
+    terrain: ${RISK_W_TERRAIN:0.15}
+    human-activity: ${RISK_W_HUMAN_ACTIVITY:0.10}
+  level-thresholds:
+    high-min: ${RISK_LEVEL_HIGH_MIN:70}
+    medium-min: ${RISK_LEVEL_MEDIUM_MIN:40}
+  prediction:
+    # F11 Level 1 规则椭圆扩散（horizons 以逗号分隔）
+    horizons-min: ${RISK_PREDICT_HORIZONS:30,60}
+    base-spread-rate-m-per-min: ${RISK_SPREAD_BASE:1.5}
+    wind-speed-factor-per-mps: ${RISK_SPREAD_WIND_FACTOR:0.20}
+    length-width-ratio-base: ${RISK_LW_BASE:1.5}
+    length-width-ratio-per-mps: ${RISK_LW_PER_MPS:0.25}
+    length-width-ratio-max: ${RISK_LW_MAX:3.0}
+    confidence: ${RISK_PREDICT_CONFIDENCE:0.78}
+  patrol:
+    # F08 巡检建议（蛇形覆盖航点）
+    lane-spacing-m: ${RISK_PATROL_LANE_M:80}
+    coverage-altitude-m: ${RISK_PATROL_ALT_M:100}
+    cruise-speed-mps: ${RISK_PATROL_SPEED_MPS:9}
+    top-n: ${RISK_PATROL_TOP_N:5}
+
 management:
   endpoints:
     web:

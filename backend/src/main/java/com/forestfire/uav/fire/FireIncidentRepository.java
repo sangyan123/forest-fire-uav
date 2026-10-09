@@ -20,6 +20,9 @@ public interface FireIncidentRepository extends JpaRepository<FireIncidentEntity
     /** 序号生成：当日 incident_no 前缀计数 */
     long countByIncidentNoStartingWith(String prefix);
 
+    /** 活跃火情（F11 预测目标：SUSPECTED/VERIFYING/CONFIRMED/TRACKING，最近活跃优先） */
+    List<FireIncidentEntity> findByStatusInOrderByUpdatedAtDesc(Collection<String> status);
+
     /**
      * 火情去重（100m/120s）粗筛：未关闭（status 不在终态集合）、updated_at（事件最后活动时间，
      * 每次检测合并都会刷新）在窗口内、经纬度矩形圈选（±100m 对应经纬度增量），

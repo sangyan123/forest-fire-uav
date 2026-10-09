@@ -57,6 +57,26 @@ public class AiServiceClient {
     public record TrackingResult(Double direction, Double speed, Double areaGrowthRate, String trend) {
     }
 
+    /** F07 五因子分值（03号第91.5节，cellCode → 五因子 0~100） */
+    public record RiskFactorItem(String cellCode, Double historical, Double weather,
+                                 Double vegetation, Double terrain, Double humanActivity) {
+    }
+
+    /** F11 单档预测（03号第91.5节，ring 为 [lat,lon] 闭合环） */
+    public record FirePredictionItem(Integer forecastMinutes, List<double[]> ring,
+                                     Double areaSquareMeters, Double semiMajorM, Double semiMinorM,
+                                     Double fireHeadDirectionDeg, Double spreadRateMPerMin,
+                                     Double lengthWidthRatio, Double confidence) {
+    }
+
+    /** F08 蛇形航点（03号第91.5节） */
+    public record PatrolWaypoint(int sequenceNo, double latitude, double longitude, double altitude) {
+    }
+
+    public record PatrolWaypointsResult(List<PatrolWaypoint> waypoints, Double routeLengthM,
+                                        Double estimatedDurationMin) {
+    }
+
     /** F01 火情检测：入参 {taskId, mediaId}，出 data.detections[] */
     public List<DetectionItem> detect(UUID taskId, UUID mediaId) {
         Map<String, Object> body = new HashMap<>();
@@ -137,6 +157,103 @@ public class AiServiceClient {
                 doubleOrNull(data, "speed"),
                 doubleOrNull(data, "areaGrowthRate"),
                 textOrNull(data, "trend"));
+    }
+
+    /** 气象 mock 当前值（与 DJI 遥测分离，03号第19.3节硬约束） */
+    public Map<String, Object> weatherCurrent() {
+        JsonNode data = aiServiceRestClient.get()
+                .uri("/ai/v1/weather/current")
+                .retrieve()
+                .body(JsonNode.class);
+        if (data == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "AI service empty response: weather");
+        }
+        JsonNode d = data.path("data");
+        Map<String, Object> weather = new LinkedHashMap<>();
+        weather.put("source", textOrNull(d, "source"));
+        weather.put("tempC", doubleOrNull(d, "tempC"));
+        weather.put("humidityPct", doubleOrNull(d, "humidityPct"));
+        weather.put("windSpeedMps", doubleOrNull(d, "windSpeedMps"));
+        weather.put("windDirectionDeg", doubleOrNull(d, "windDirectionDeg"));
+        return weather;
+    }
+
+    /** F07 五因子分值：入参 {cells:[{cellCode}], weather}，出 data.factors[]（03号第91.5节） */
+    public List<RiskFactorItem> riskFactors(List<String> cellCodes, Map<String, Object> weather) {
+        List<Map<String, Object>> cells = new ArrayList<>();
+        for (String code : cellCodes) {
+            cells.add(Map.of("cellCode", code));
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("cells", cells);
+        body.put("weather", weather);
+        JsonNode data = postAndUnwrap("/ai/v1/risk/factors", body);
+        List<RiskFactorItem> items = new ArrayList<>();
+        for (JsonNode n : data.path("factors")) {
+            items.add(new RiskFactorItem(
+                    textOrNull(n, "cellCode"),
+                    doubleOrNull(n, "HISTORICAL"),
+                    doubleOrNull(n, "WEATHER"),
+                    doubleOrNull(n, "VEGETATION"),
+                    doubleOrNull(n, "TERRAIN"),
+                    doubleOrNull(n, "HUMAN_ACTIVITY")));
+        }
+        return items;
+    }
+
+    /** F11 椭圆扩散预测：params 唯一来源 backend application.yml risk.prediction.*（透传） */
+    public List<FirePredictionItem> predict(double latitude, double longitude, double baseRadiusM,
+                                            List<Integer> horizons, Map<String, Object> weather,
+                                            Map<String, Object> params) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("center", Map.of("latitude", latitude, "longitude", longitude));
+        body.put("baseRadiusM", baseRadiusM);
+        body.put("horizons", horizons);
+        body.put("weather", weather);
+        body.put("params", params);
+        JsonNode data = postAndUnwrap("/ai/v1/fire/predict", body);
+        List<FirePredictionItem> items = new ArrayList<>();
+        for (JsonNode n : data.path("predictions")) {
+            List<double[]> ring = new ArrayList<>();
+            for (JsonNode p : n.path("ring")) {
+                if (p.isArray() && p.size() >= 2 && p.get(0).isNumber() && p.get(1).isNumber()) {
+                    ring.add(new double[]{p.get(0).asDouble(), p.get(1).asDouble()});
+                }
+            }
+            items.add(new FirePredictionItem(
+                    n.path("forecastMinutes").isInt() ? n.path("forecastMinutes").asInt() : null,
+                    ring,
+                    doubleOrNull(n, "areaSquareMeters"),
+                    doubleOrNull(n, "semiMajorM"),
+                    doubleOrNull(n, "semiMinorM"),
+                    doubleOrNull(n, "fireHeadDirectionDeg"),
+                    doubleOrNull(n, "spreadRateMPerMin"),
+                    doubleOrNull(n, "lengthWidthRatio"),
+                    doubleOrNull(n, "confidence")));
+        }
+        return items;
+    }
+
+    /** F08 蛇形覆盖航点：laneSpacing/altitude/speed 唯一来源 backend application.yml risk.patrol.* */
+    public PatrolWaypointsResult patrolWaypoints(double minLat, double minLon,
+                                                 double maxLat, double maxLon,
+                                                 double laneSpacingM, double altitudeM, double speedMps) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("bounds", Map.of("minLat", minLat, "minLon", minLon, "maxLat", maxLat, "maxLon", maxLon));
+        body.put("laneSpacingM", laneSpacingM);
+        body.put("altitudeM", altitudeM);
+        body.put("speedMps", speedMps);
+        JsonNode data = postAndUnwrap("/ai/v1/patrol/waypoints", body);
+        List<PatrolWaypoint> waypoints = new ArrayList<>();
+        for (JsonNode n : data.path("waypoints")) {
+            waypoints.add(new PatrolWaypoint(
+                    n.path("sequenceNo").asInt(0),
+                    n.path("latitude").asDouble(),
+                    n.path("longitude").asDouble(),
+                    n.path("altitude").asDouble()));
+        }
+        return new PatrolWaypointsResult(waypoints,
+                doubleOrNull(data, "routeLengthM"), doubleOrNull(data, "estimatedDurationMin"));
     }
 
     // ---------------- 内部工具 ----------------

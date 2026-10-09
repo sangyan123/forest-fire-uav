@@ -76,6 +76,8 @@ tags:
     description: 调度（07号第16章）
   - name: Command
     description: 无人机命令（07号第17~19章）
+  - name: Risk
+    description: 火情风险检测页（F07风险评估+F11趋势预测+F08巡检建议，03号第91章）
   - name: AI-Service
     description: AI服务内部接口（07号第20~23章；Backend↔AI，不对外）
 
@@ -753,6 +755,243 @@ paths:
         '40001':
           $ref: '#/components/responses/BadRequest'
 
+  # -------------------------------------------------------------------
+  # Risk 火情风险检测页（F07+F11+F08，03号第91章，2026-10-09）
+  # -------------------------------------------------------------------
+  /api/v1/risk/areas:
+    get:
+      tags: [Risk]
+      summary: 风险区域列表/图层
+      description: >-
+        返回网格自动划分的风险区域（risk_area，1km 网格 5×5）。level 过滤 RiskLevel；
+        bbox 为 [minLng,minLat,maxLng,maxLat] 视口过滤。数据由 POST /risk/assess 生成。
+      parameters:
+        - name: level
+          in: query
+          schema: { type: string, enum: [HIGH, MEDIUM, LOW] }
+        - name: bbox
+          in: query
+          schema: { type: string, description: "minLng,minLat,maxLng,maxLat" }
+      responses:
+        '200':
+          description: 风险区域列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RiskArea'
+
+  /api/v1/risk/areas/{areaId}:
+    get:
+      tags: [Risk]
+      summary: 风险区域详情（五因子分项）
+      parameters:
+        - name: areaId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 区域详情 + risk_feature 五因子
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/RiskArea'
+                          - type: object
+                            properties:
+                              factors:
+                                type: array
+                                items:
+                                  $ref: '#/components/schemas/RiskFactor'
+        '40400':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/risk/assess:
+    post:
+      tags: [Risk]
+      summary: 触发风险重评估（F07）
+      description: >-
+        重建 25 格 risk_feature 因子分并计算加权 RiskScore，落 risk_area_assessment 新版本
+        （UNIQUE area_id+assessed_at）；已有 SUGGESTED 巡检建议置 EXPIRED。
+      responses:
+        '200':
+          description: 评估结果摘要（评估格数/高/中/低计数）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RiskAssessSummary'
+
+  /api/v1/predictions/latest:
+    get:
+      tags: [Risk]
+      summary: 最新火势预测（F11）
+      parameters:
+        - name: incidentId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 最新预测（30/60min 两档；无活跃火情时 data 为空数组）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FirePrediction'
+
+  /api/v1/predictions/run:
+    post:
+      tags: [Risk]
+      summary: 手动重跑预测（F11）
+      description: 对指定活跃火情重跑 Level 1 椭圆扩散预测并落新版本；缺省取最新 ACTIVE 火情。
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                incidentId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 新预测结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FirePrediction'
+
+  /api/v1/patrol-suggestions:
+    get:
+      tags: [Risk]
+      summary: 巡检建议列表（F08）
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [SUGGESTED, DISPATCHED, DISMISSED, EXPIRED] }
+      responses:
+        '200':
+          description: 建议列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PatrolSuggestion'
+
+  /api/v1/patrol-suggestions/generate:
+    post:
+      tags: [Risk]
+      summary: 从风险区域生成巡检建议（F08）
+      description: >-
+        按 risk_score 降序取前 N（constants.yaml#patrol_suggestion#top_n_suggestions）个
+        风险区域，蛇形覆盖航点生成 patrol_area 记录（status=SUGGESTED）。
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                areaIds:
+                  type: array
+                  items: { type: string, format: uuid }
+                  description: "指定区域；缺省=全部按分数排序取前N"
+      responses:
+        '200':
+          description: 新生成的建议
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PatrolSuggestion'
+
+  /api/v1/patrol-suggestions/{suggestionId}/dispatch:
+    post:
+      tags: [Risk]
+      summary: 建议下发成 RISK_PATROL 任务
+      description: >-
+        经 F09-Basic 评分选机创建 mission（mission_type=RISK_PATROL，risk_area_id 回填），
+        航点写 mission_waypoint；patrol_area.status→DISPATCHED，reason JSONB 记录 missionId。
+      parameters:
+        - name: suggestionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 创建的任务
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MissionInfo'
+        '40900':
+          $ref: '#/components/responses/ResourceConflict'
+
+  /api/v1/patrol-suggestions/{suggestionId}/dismiss:
+    post:
+      tags: [Risk]
+      summary: 驳回巡检建议
+      parameters:
+        - name: suggestionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 驳回后的建议（status=DISMISSED）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PatrolSuggestion'
+
   /api/v1/commands/{commandId}:
     get:
       tags: [Command]
@@ -1390,6 +1629,93 @@ components:
             battery: { type: number, format: double, example: 0.82 }
             capability: { type: number, format: double, example: 1.0 }
             link: { type: number, format: double, example: 0.95 }
+
+    # ---------- Risk（03号第91章，F07+F11+F08） ----------
+    RiskLevel:
+      type: string
+      description: "风险等级（enums.yaml#RiskLevel enums-v1.4）；阈值见 constants.yaml#risk_assessment#level_thresholds"
+      enum: [HIGH, MEDIUM, LOW]
+    RiskArea:
+      type: object
+      properties:
+        areaId: { type: string, format: uuid }
+        areaCode: { type: string, example: "GRID-R3-C2" }
+        areaName: { type: string, example: "网格 R3-C2" }
+        geometry:
+          type: object
+          description: "网格多边形（MultiPolygon GeoJSON，PostGIS geometry(MultiPolygon,4326)）"
+        riskScore: { type: number, format: double, example: 87.5 }
+        riskLevel:
+          $ref: '#/components/schemas/RiskLevel'
+        evaluationTime: { type: string, format: date-time }
+    RiskFactor:
+      type: object
+      description: "五因子分项（risk_feature 行）；权重见 constants.yaml#risk_assessment#weights"
+      properties:
+        featureType: { type: string, example: HISTORICAL, description: "HISTORICAL/WEATHER/VEGETATION/TERRAIN/HUMAN_ACTIVITY" }
+        featureValue: { type: number, format: double, example: 92.0 }
+        weight: { type: number, format: double, example: 0.30 }
+        contribution: { type: number, format: double, example: 27.6 }
+        source: { type: string, example: "ai-service mock provider" }
+    RiskAssessSummary:
+      type: object
+      properties:
+        assessedCount: { type: integer, example: 25 }
+        highCount: { type: integer, example: 4 }
+        mediumCount: { type: integer, example: 11 }
+        lowCount: { type: integer, example: 10 }
+        assessedAt: { type: string, format: date-time }
+    FirePrediction:
+      type: object
+      description: "火势预测（fire_prediction 行，F11 Level 1 规则模型）"
+      properties:
+        predictionId: { type: string, format: uuid }
+        incidentId: { type: string, format: uuid }
+        baseTime: { type: string, format: date-time }
+        forecastMinutes: { type: integer, example: 30, description: "30/60 两档（constants.yaml#fire_prediction#forecast_horizons_min）" }
+        predictedGeometry:
+          type: object
+          description: "扩散椭圆多边形（MultiPolygon GeoJSON）"
+        predictedAreaSquareMeter: { type: number, format: double, example: 48200 }
+        confidence: { type: number, format: double, example: 0.78 }
+        environmentalInput:
+          type: object
+          description: "气象 mock 快照（tempC/humidityPct/windSpeedMps/windDirectionDeg；与DJI遥测分离）"
+        predictionResult:
+          type: object
+          description: "模型过程数据（火头方向/长短轴/蔓延速度等）"
+        createdAt: { type: string, format: date-time }
+    PatrolSuggestionStatus:
+      type: string
+      description: "巡检建议状态（enums.yaml#PatrolSuggestionStatus enums-v1.4；patrol_area.status）"
+      enum: [SUGGESTED, DISPATCHED, DISMISSED, EXPIRED]
+    PatrolSuggestion:
+      type: object
+      description: "巡检建议（patrol_area 行，F08 生成）"
+      properties:
+        suggestionId: { type: string, format: uuid }
+        riskAreaId: { type: string, format: uuid }
+        areaCode: { type: string, example: "GRID-R3-C2" }
+        riskScore: { type: number, format: double, example: 87.5 }
+        geometry:
+          type: object
+          description: "覆盖区域多边形（Polygon GeoJSON）"
+        waypoints:
+          type: array
+          description: "蛇形覆盖航点（估时 9m/s、航高 100m）"
+          items:
+            type: object
+            properties:
+              sequenceNo: { type: integer }
+              latitude: { type: number, format: double }
+              longitude: { type: number, format: double }
+              altitude: { type: number, format: double, example: 100 }
+        priority: { type: integer, example: 90 }
+        estimatedDurationMin: { type: number, format: double, example: 8.5 }
+        status:
+          $ref: '#/components/schemas/PatrolSuggestionStatus'
+        missionId: { type: string, format: uuid, description: "DISPATCHED 时回填（存 reason JSONB）" }
+        generatedAt: { type: string, format: date-time }
 
     # ---------- Command ----------
     CommandType:
