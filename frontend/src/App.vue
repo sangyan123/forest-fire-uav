@@ -965,7 +965,25 @@ async function sendCommand(
   }
 }
 
+/* 重复指令拦截：按当前状态判断一键起飞/降落/返航是否多余 */
+const AIRBORNE_STATUSES = new Set(['AIRBORNE', 'HOVER', 'GOTO', 'TAKEOFF', 'FLYING'])
+const GROUNDED_STATUSES = new Set(['IDLE', 'STANDBY', 'LANDED', 'GROUNDED', 'CHARGING'])
+const RETURNING_STATUSES = new Set(['RETURNING', 'RTL'])
+
 function onQuick(commandType: 'TAKEOFF' | 'LAND' | 'RETURN_HOME' | 'LOUDSPEAKER_BROADCAST' | 'DROP_SUPPLIES'): void {
+  const cur = state.value?.status?.toUpperCase() ?? ''
+  if (commandType === 'TAKEOFF' && AIRBORNE_STATUSES.has(cur)) {
+    pushToast('info', '当前已起飞，无需重复起飞')
+    return
+  }
+  if (commandType === 'LAND' && GROUNDED_STATUSES.has(cur)) {
+    pushToast('info', '当前已降落')
+    return
+  }
+  if (commandType === 'RETURN_HOME' && RETURNING_STATUSES.has(cur)) {
+    pushToast('info', '当前正在返航中')
+    return
+  }
   if (commandType === 'LOUDSPEAKER_BROADCAST') {
     // 喊话：终态提示由 onBroadcastTerminal 定制（展示设备回传的播报全文），屏蔽默认成功 toast
     void sendCommand('LOUDSPEAKER_BROADCAST', undefined, '📢 森林防护喊话', {

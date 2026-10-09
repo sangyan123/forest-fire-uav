@@ -550,6 +550,11 @@ class Simulator:
         self._publish_result(command_id, "EXECUTING", {})
 
         if command_type == "GOTO":
+            if self._flight_status == "LANDED":
+                # 停机态GOTO：先爬升到巡逻高度再转场（否则贴地0m滑行，逻辑矛盾）
+                self._relative_altitude_m = PATROL_ALTITUDE_M
+                self._speed_mps = CRUISE_SPEED_MPS
+                log.info("GOTO from ground: climb to patrol altitude first")
             self._target = {
                 "latitude": float(payload.get("latitude", self._latitude)),
                 "longitude": float(payload.get("longitude", self._longitude)),
@@ -562,6 +567,12 @@ class Simulator:
             self._goto_started_at = time.monotonic()
             self._pending_command_id = command_id  # SUCCESS is published on arrival
         elif command_type == "RETURN_HOME":
+            was_landed = self._flight_status == "LANDED"
+            if was_landed:
+                # 停机态返航：先爬升到巡逻高度再飞回（否则贴地0m滑行，逻辑矛盾）
+                self._relative_altitude_m = PATROL_ALTITUDE_M
+                self._speed_mps = CRUISE_SPEED_MPS
+                log.info("Return home from ground: climb to patrol altitude first")
             self._target = {
                 "latitude": HOME_LAT,
                 "longitude": HOME_LON,
