@@ -78,6 +78,8 @@ tags:
     description: 无人机命令（07号第17~19章）
   - name: Risk
     description: 火情风险检测页（F07风险评估+F11趋势预测+F08巡检建议，03号第91章）
+  - name: Assessment
+    description: 灾后情况检测页（F10灾后过火区域评估，03号第18章）
   - name: AI-Service
     description: AI服务内部接口（07号第20~23章；Backend↔AI，不对外）
 
@@ -992,6 +994,86 @@ paths:
                       data:
                         $ref: '#/components/schemas/PatrolSuggestion'
 
+  /api/v1/assessment/burned-area:
+    post:
+      tags: [Assessment]
+      summary: 触发灾后过火区域评估（F10，仅 RESOLVED/CLOSED 事件可评估）
+      description: |
+        03号第18章 F10。入参 {incidentId}；后端校验事件状态 ∈ {RESOLVED, CLOSED}，
+        取最新 fire_polygon 质心作火心，调 ai-service 三分带收缩 mock，
+        幂等覆盖落库（同事件删旧报告+旧分带后插新报告+3行分带，report_no 按事件稳定）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [incidentId]
+              properties:
+                incidentId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 评估摘要（含报告号、四项统计、三分带面积）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AssessSummary'
+        '40003':
+          description: 事件状态不允许评估（非 RESOLVED/CLOSED）
+
+  /api/v1/assessment/reports:
+    get:
+      tags: [Assessment]
+      summary: 评估报告列表（按 created_at 倒序，含分带摘要）
+      parameters:
+        - name: incidentId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 报告列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AssessmentReport'
+
+  /api/v1/assessment/reports/{reportId}:
+    get:
+      tags: [Assessment]
+      summary: 评估报告详情（含三分带 GeoJSON）
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 报告详情（含三分带 geometry）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AssessmentReportDetail'
+        '40401':
+          $ref: '#/components/responses/NotFound'
+
   /api/v1/commands/{commandId}:
     get:
       tags: [Command]
@@ -1716,6 +1798,78 @@ components:
           $ref: '#/components/schemas/PatrolSuggestionStatus'
         missionId: { type: string, format: uuid, description: "DISPATCHED 时回填（存 reason JSONB）" }
         generatedAt: { type: string, format: date-time }
+
+    # ---------- Assessment ----------
+    BurnedAreaSeverity:
+      type: string
+      description: "过火严重度分带（enums.yaml#BurnedAreaSeverity enums-v1.5）：SEVERE=火心核最内环/MODERATE中环/LIGHT外环"
+      enum: [SEVERE, MODERATE, LIGHT]
+    AssessmentReportType:
+      type: string
+      description: "评估报告类型（enums.yaml#AssessmentReportType enums-v1.5）：一期仅 POST_FIRE_ASSESSMENT"
+      enum: [POST_FIRE_ASSESSMENT]
+    AssessSummary:
+      type: object
+      description: "评估摘要（POST /assessment/burned-area 响应，03号第18.4节）"
+      properties:
+        reportId: { type: string, format: uuid }
+        incidentId: { type: string, format: uuid }
+        reportNo: { type: string, example: "RPT-INC-0001" }
+        burnedAreaSquareMeter: { type: number, format: double, example: 125600 }
+        affectedForestAreaSquareMeter: { type: number, format: double, example: 93000 }
+        affectedRoadLengthMeter: { type: number, format: double, example: 1830 }
+        affectedFacilityAreaSquareMeter: { type: number, format: double, example: 420 }
+        severityBands:
+          type: array
+          description: "三分带面积摘要（SEVERE/MODERATE/LIGHT）"
+          items:
+            $ref: '#/components/schemas/AssessmentArea'
+        assessedAt: { type: string, format: date-time }
+    AssessmentArea:
+      type: object
+      description: "过火分带（assessment_area 行，SEVERE/MODERATE/LIGHT）"
+      properties:
+        areaType:
+          $ref: '#/components/schemas/BurnedAreaSeverity'
+        geometry:
+          type: object
+          description: "分带多边形（MultiPolygon GeoJSON，[lat,lon] 闭合环）"
+        areaSquareMeter: { type: number, format: double, example: 37680 }
+        confidence: { type: number, format: double, example: 0.82 }
+    AssessmentReport:
+      type: object
+      description: "评估报告（assessment_report 行，列表项）"
+      properties:
+        reportId: { type: string, format: uuid }
+        incidentId: { type: string, format: uuid }
+        reportNo: { type: string, example: "RPT-INC-0001" }
+        reportType:
+          $ref: '#/components/schemas/AssessmentReportType'
+        burnedAreaSquareMeter: { type: number, format: double, example: 125600 }
+        affectedForestAreaSquareMeter: { type: number, format: double, example: 93000 }
+        affectedRoadLengthMeter: { type: number, format: double, example: 1830 }
+        affectedFacilityAreaSquareMeter: { type: number, format: double, example: 420 }
+        severityBands:
+          type: array
+          description: "三分带面积摘要（列表项不含 geometry，仅面积）"
+          items:
+            type: object
+            properties:
+              areaType:
+                $ref: '#/components/schemas/BurnedAreaSeverity'
+              areaSquareMeter: { type: number, format: double }
+        createdAt: { type: string, format: date-time }
+    AssessmentReportDetail:
+      description: "报告详情 = 报告字段 + severityBands 含 geometry（allOf 扩展）"
+      allOf:
+        - $ref: '#/components/schemas/AssessmentReport'
+        - type: object
+          properties:
+            severityBands:
+              type: array
+              description: "三分带完整数据（含 geometry GeoJSON）"
+              items:
+                $ref: '#/components/schemas/AssessmentArea'
 
     # ---------- Command ----------
     CommandType:

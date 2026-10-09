@@ -2,6 +2,7 @@
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import InfoPanel from './components/InfoPanel.vue'
 import MapView from './components/MapView.vue'
+import DisasterPage from './components/DisasterPage.vue'
 import RiskPage from './components/RiskPage.vue'
 import Toasts from './components/Toasts.vue'
 import {
@@ -1246,10 +1247,7 @@ onUnmounted(() => {
         </div>
       </main>
       <main v-if="activeTab === 'disaster-check'" class="content risk-page">
-        <div class="risk-placeholder">
-          <img class="risk-icon" src="/zaihou.png" alt="" />
-          <p>灾后情况检测功能建设中</p>
-        </div>
+        <DisasterPage />
       </main>
       <main v-if="activeTab === 'anomaly-person'" class="content risk-page">
         <div class="risk-placeholder">

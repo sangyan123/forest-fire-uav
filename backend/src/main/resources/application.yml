@@ -102,6 +102,32 @@ risk:
     cruise-speed-mps: ${RISK_PATROL_SPEED_MPS:9}
     top-n: ${RISK_PATROL_TOP_N:5}
 
+assessment:
+  # 灾后情况检测页参数（2026-10-09 页面聚合设计，默认值机器来源 constants.yaml v1.7
+  # assessment 段，03号第18章）。三项决策（方案 A）：三分带+幂等覆盖+仅 RESOLVED/CLOSED 可评估
+  severity-ratios:
+    # 三分带同心收缩比例（SEVERE=火心核最内环，MODERATE 中环，LIGHT 外环）
+    severe: ${ASSESS_SEVERITY_SEVERE:0.30}
+    moderate: ${ASSESS_SEVERITY_MODERATE:0.45}
+    light: ${ASSESS_SEVERITY_LIGHT:0.25}
+  shrink-rate-range:
+    # 火场外环相对 fire_polygon 保留率区间（按事件种子确定性取值）
+    min: ${ASSESS_SHRINK_MIN:0.75}
+    max: ${ASSESS_SHRINK_MAX:0.95}
+  confidence: ${ASSESS_CONFIDENCE:0.82}
+  forest-coverage-range:
+    # 过火区域内林地占比区间
+    min: ${ASSESS_FOREST_MIN:0.55}
+    max: ${ASSESS_FOREST_MAX:0.80}
+  road-length-range:
+    # 受影响道路长度区间（米）
+    min: ${ASSESS_ROAD_MIN:0}
+    max: ${ASSESS_ROAD_MAX:2500}
+  facility-area-range:
+    # 受影响设施面积区间（平方米）
+    min: ${ASSESS_FACILITY_MIN:0}
+    max: ${ASSESS_FACILITY_MAX:800}
+
 management:
   endpoints:
     web:

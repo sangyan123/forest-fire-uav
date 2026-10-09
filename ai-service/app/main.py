@@ -377,3 +377,129 @@ def patrol_waypoints(req: dict):
         "estimatedDurationMin": duration_min,
         "waypoints": waypoints,
     })
+
+
+# =====================================================================
+# 灾后过火区域评估 mock（F10 三分带同心收缩，03号第18章）
+# 纯函数 provider：模型参数由 backend 请求体传入（唯一来源 application.yml
+# assessment.*，镜像 constants.yaml v1.7），本文件不内嵌第二套业务参数。
+# 按 incidentId md5 种子确定性收缩（保留率在 shrinkRate 区间按种子取值）+
+# 边缘确定性扰动 → burned 外环；同心收缩三环按 severityRatios 切
+# SEVERE/MODERATE/LIGHT（SEVERE=火心核最内环，MODERATE 中环，LIGHT 外环）；
+# 面积用 shoelace（与 F11 areaSquareMeters 同坐标系）。
+# =====================================================================
+
+def _ring_centroid(ring):
+    """简单算术质心（[lat,lon] 闭合环）。"""
+    pts = ring[:-1] if len(ring) > 1 and ring[0] == ring[-1] else ring
+    if not pts:
+        return 30.142, 114.146
+    lat = sum(p[0] for p in pts) / len(pts)
+    lon = sum(p[1] for p in pts) / len(pts)
+    return lat, lon
+
+
+def _shoelace_area_m2(ring, ref_lat):
+    """shoelace 面积（平方米）；ring=[[lat,lon]...]闭合环；ref_lat 用于 cos 纬度修正。"""
+    pts = ring if ring[0] == ring[-1] else ring + [ring[0]]
+    if len(pts) < 4:
+        return 0.0
+    m_per_deg_lat = 111320.0
+    m_per_deg_lon = 111320.0 * math.cos(math.radians(ref_lat))
+    s = 0.0
+    for i in range(len(pts) - 1):
+        y0, x0 = pts[i][0], pts[i][1]
+        y1, x1 = pts[i + 1][0], pts[i + 1][1]
+        s += x0 * y1 - x1 * y0
+    area_deg2 = abs(s) / 2.0
+    return area_deg2 * m_per_deg_lat * m_per_deg_lon
+
+
+def _shrink_ring(ring, cx_lat, cx_lon, scale, seed):
+    """以质心为中心，按 scale 缩放各点 + 边缘确定性扰动，返回闭合环（点数=原始去闭合+1）。"""
+    pts = ring[:-1] if len(ring) > 1 and ring[0] == ring[-1] else ring
+    if not pts:
+        pts = [[cx_lat, cx_lon]]
+    out = []
+    for i, p in enumerate(pts):
+        dlat = (p[0] - cx_lat) * scale
+        dlon = (p[1] - cx_lon) * scale
+        # 边缘确定性扰动：±5%（按 (seed, i) 哈希）
+        jitter = _deterministic_percent(f"{seed}-j{i}", -5.0, 5.0) / 100.0
+        dlat *= (1.0 + jitter)
+        dlon *= (1.0 + jitter)
+        out.append([round(cx_lat + dlat, 6), round(cx_lon + dlon, 6)])
+    out.append([out[0][0], out[0][1]])  # 闭合
+    return out
+
+
+@app.post("/ai/v1/assessment/burned-area")
+def assessment_burned_area(req: dict):
+    """F10 灾后过火区域评估 mock（03号第18章，三分带同心收缩）。
+    入参 {incidentId, lastPolygonRing:[[lat,lon]...], params{shrinkRateMin,shrinkRateMax,
+    severityRatios{severe,moderate,light},confidence,forestMin,forestMax,roadMax,facilityMax}}；
+    出 data{rings{SEVERE,MODERATE,LIGHT:[[lat,lon]...]},
+    burnedAreaSquareMeter, affectedForestAreaSquareMeter, affectedRoadLengthMeter,
+    affectedFacilityAreaSquareMeter, confidence}。
+    参数唯一来源 = backend 请求体（不内嵌第二套业务参数，与 F07 纪律一致）。"""
+    if PROVIDER == "real":
+        return _real_pending("assessment/burned-area")
+    incident_id = str(req.get("incidentId", ""))
+    ring = req.get("lastPolygonRing") or []
+    if not ring or len(ring) < 3:
+        ring = [
+            [30.142, 114.136], [30.142, 114.156],
+            [30.152, 114.156], [30.152, 114.136],
+            [30.142, 114.136],
+        ]
+    p = req.get("params") or {}
+    shrink_min = float(p.get("shrinkRateMin", 0.75))
+    shrink_max = float(p.get("shrinkRateMax", 0.95))
+    ratios = p.get("severityRatios") or {}
+    r_severe = float(ratios.get("severe", 0.30))
+    r_moderate = float(ratios.get("moderate", 0.45))
+    r_light = float(ratios.get("light", 0.25))
+    confidence = float(p.get("confidence", 0.82))
+    forest_min = float(p.get("forestMin", 0.55))
+    forest_max = float(p.get("forestMax", 0.80))
+    road_max = float(p.get("roadMax", 2500.0))
+    facility_max = float(p.get("facilityMax", 800.0))
+
+    # 确定性收缩率（按 incidentId 种子在 [min,max] 取值，保留率越大火场越大）
+    shrink_rate = _deterministic_percent(f"shrink-{incident_id}", shrink_min, shrink_max) / 100.0
+    # 质心作火心
+    cx_lat, cx_lon = _ring_centroid(ring)
+    # 三分带半径比例（面积比例 → 半径比例 sqrt；累积：severe / severe+moderate / total）
+    scale_severe = shrink_rate * math.sqrt(max(0.0, r_severe))
+    scale_moderate = shrink_rate * math.sqrt(max(0.0, r_severe + r_moderate))
+    scale_light = shrink_rate  # 外环=总过火
+
+    seed = f"ba-{incident_id}"
+    ring_severe = _shrink_ring(ring, cx_lat, cx_lon, scale_severe, seed + "-s")
+    ring_moderate = _shrink_ring(ring, cx_lat, cx_lon, scale_moderate, seed + "-m")
+    ring_light = _shrink_ring(ring, cx_lat, cx_lon, scale_light, seed + "-l")
+
+    # 面积（shoelace）
+    burned_area = _shoelace_area_m2(ring_light, cx_lat)
+    # 受影响林地（按种子 forest 占比）
+    forest_ratio = _deterministic_percent(f"forest-{incident_id}", forest_min * 100, forest_max * 100) / 100.0
+    affected_forest = round(burned_area * forest_ratio, 1)
+    # 受影响道路（按种子 0~roadMax 米）
+    affected_road = round(_deterministic_percent(f"road-{incident_id}", 0.0, road_max), 1)
+    # 受影响设施（按种子 0~facilityMax 平方米）
+    affected_facility = round(_deterministic_percent(f"fac-{incident_id}", 0.0, facility_max), 1)
+
+    return _wrap({
+        "provider": "mock",
+        "incidentId": incident_id,
+        "rings": {
+            "SEVERE": ring_severe,
+            "MODERATE": ring_moderate,
+            "LIGHT": ring_light,
+        },
+        "burnedAreaSquareMeter": round(burned_area, 1),
+        "affectedForestAreaSquareMeter": affected_forest,
+        "affectedRoadLengthMeter": affected_road,
+        "affectedFacilityAreaSquareMeter": affected_facility,
+        "confidence": confidence,
+    })

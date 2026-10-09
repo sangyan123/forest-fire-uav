@@ -2,8 +2,8 @@
 # 森林防火无人机智能系统 — 枚举唯一来源（enums.yaml）
 # =====================================================================
 # 归属:   00号基线 V1.3 第5章（docs/00-doc/ 机器可执行来源）与第70章
-# 版本:   enums-v1.0
-# 日期:   2026-09-27
+# 版本:   enums-v1.5
+# 日期:   2026-09-27（v1.1: 2026-10-05 增补 CommandType#DROP_EXTINGUISHING_BALL/LOUDSPEAKER_BROADCAST；v1.2: 2026-10-05 IncidentStatus 增 CONFIRMED→PROCESSING 旁路；v1.3: 2026-10-06 增补 CommandType#DROP_SUPPLIES；v1.4: 2026-10-09 增补 RiskLevel/PatrolSuggestionStatus；v1.5: 2026-10-09 增补 BurnedAreaSeverity/AssessmentReportType，见 change-log）
 #
 # 规则（基线第76章）:
 #   1. 一个枚举只有一个主定义文档（owner），本文件是所有枚举的唯一
@@ -21,7 +21,7 @@
 # =====================================================================
 
 meta:
-  file_version: enums-v1.4
+  file_version: enums-v1.5
   baseline: "00 跨文档设计基线与矛盾修订清单 V1.3（docs/00-doc/active/00_跨文档设计基线_V1.3.md）"
   created: 2026-09-27
   owner_of_this_file: "00号基线（治理方）；各枚举语义归各 owner 文档"
@@ -459,4 +459,41 @@ enums:
     notes:
       - "DISPATCHED 时回填 mission.id（patrol_area 表无 mission_id 列，关联由应用层经 reason JSONB 记录 missionId 或由后续迁移补列，本版采用 reason JSONB 记录）。"
       - "评估重算（risk_area_assessment 新版本落库）后，旧建议置 EXPIRED。"
+    consumers: ["doc-03", "doc-04", "backend", "frontend", "db"]
+
+  # -------------------------------------------------------------------
+  # 15. BurnedAreaSeverity 过火严重度分带
+  # -------------------------------------------------------------------
+  BurnedAreaSeverity:
+    owner: "03 功能详细技术设计文档（V1.x 第18章 F10 灾后过火区域评估 / 页面聚合设计章节）"
+    source: "assessment_area.area_type 列（VARCHAR(64)）；值集由页面聚合设计推导（三分带）"
+    description: "灾后过火区域严重度分带（同心收缩三环，SEVERE=火心核最内环，MODERATE 中环，LIGHT 外环）。写入 assessment_area.area_type，不违基线（DDL area_type 为 VARCHAR(64)）。"
+    status: "CANDIDATE — V1 候选，待03/04号修订正式冻结"
+    values:
+      - name: SEVERE
+        desc: "重度过火（火心核，最内环）"
+      - name: MODERATE
+        desc: "中度过火（中环）"
+      - name: LIGHT
+        desc: "轻度过火（外环）"
+    transitions: null
+    notes:
+      - "分带比例（SEVERE 30% / MODERATE 45% / LIGHT 25%）唯一基线见 constants.yaml assessment.severity_ratios。"
+      - "前端过火分带图层填色（深红/红/橙）按本枚举渲染。"
+    consumers: ["doc-03", "doc-04", "backend", "ai-service", "frontend", "db"]
+
+  # -------------------------------------------------------------------
+  # 16. AssessmentReportType 评估报告类型
+  # -------------------------------------------------------------------
+  AssessmentReportType:
+    owner: "03 功能详细技术设计文档（V1.x 第18章 F10 灾后过火区域评估 / 页面聚合设计章节）"
+    source: "assessment_report.report_type 列（VARCHAR(64)）；值集由页面聚合设计推导"
+    description: "灾后评估报告类型。一期仅 POST_FIRE_ASSESSMENT（灾后过火区域评估）。"
+    status: "CANDIDATE — V1 候选，待03/04号修订正式冻结"
+    values:
+      - name: POST_FIRE_ASSESSMENT
+        desc: "灾后过火区域评估（F10）"
+    transitions: null
+    notes:
+      - "一期仅一种报告类型；后续可扩展灾中过程评估、灾前风险预评估等。"
     consumers: ["doc-03", "doc-04", "backend", "frontend", "db"]

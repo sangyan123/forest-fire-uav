@@ -370,3 +370,71 @@ export function postPatrolSuggestionDismiss(suggestionId: string): Promise<Patro
     { method: 'POST', headers: JSON_HEADERS, body: '{}' },
   )
 }
+
+/* ---------------- 灾后情况检测页（F10，03号第18章） ---------------- */
+
+/** 过火分带（assessment_area 行，SEVERE/MODERATE/LIGHT） */
+export interface AssessmentArea {
+  areaType: 'SEVERE' | 'MODERATE' | 'LIGHT'
+  /** [lat,lon] 闭合环（GeoJSON 外环，Leaflet 直接可用），列表项为 null */
+  geometry: [number, number][] | null
+  areaSquareMeter: number | null
+  confidence: number | null
+}
+
+/** 分带摘要（列表项用，不含 geometry） */
+export interface AssessmentAreaSummary {
+  areaType: 'SEVERE' | 'MODERATE' | 'LIGHT'
+  areaSquareMeter: number | null
+}
+
+/** 评估摘要（POST /assessment/burned-area 响应） */
+export interface AssessSummary {
+  reportId: string
+  incidentId: string
+  reportNo: string
+  burnedAreaSquareMeter: number | null
+  affectedForestAreaSquareMeter: number | null
+  affectedRoadLengthMeter: number | null
+  affectedFacilityAreaSquareMeter: number | null
+  severityBands: AssessmentAreaSummary[]
+  assessedAt: string
+}
+
+/** 评估报告（GET /assessment/reports 列表项） */
+export interface AssessmentReport {
+  reportId: string
+  incidentId: string
+  reportNo: string
+  reportType: string | null
+  burnedAreaSquareMeter: number | null
+  affectedForestAreaSquareMeter: number | null
+  affectedRoadLengthMeter: number | null
+  affectedFacilityAreaSquareMeter: number | null
+  severityBands: AssessmentAreaSummary[]
+  createdAt: string
+}
+
+/** 报告详情（GET /assessment/reports/{id}，severityBands 含 geometry） */
+export type AssessmentReportDetail = Omit<AssessmentReport, 'severityBands'> & {
+  severityBands: AssessmentArea[]
+}
+
+export function postBurnedArea(incidentId: string): Promise<AssessSummary> {
+  return request<AssessSummary>('/api/v1/assessment/burned-area', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ incidentId }),
+  })
+}
+
+export function getAssessmentReports(incidentId?: string): Promise<AssessmentReport[]> {
+  const q = incidentId ? `?incidentId=${encodeURIComponent(incidentId)}` : ''
+  return request<AssessmentReport[]>(`/api/v1/assessment/reports${q}`)
+}
+
+export function getAssessmentReportDetail(reportId: string): Promise<AssessmentReportDetail> {
+  return request<AssessmentReportDetail>(
+    `/api/v1/assessment/reports/${encodeURIComponent(reportId)}`,
+  )
+}

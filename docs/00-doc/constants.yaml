@@ -2,8 +2,8 @@
 # 森林防火无人机智能系统 — 参数唯一数值来源（constants.yaml）
 # =====================================================================
 # 归属:   00号基线 V1.3 第5章（docs/00-doc/ 机器可执行来源）
-# 版本:   constants-v1.5
-# 日期:   2026-09-27（v1.1/v1.2/v1.3: 2026-10-05 增补 extinguishing_ball / loudspeaker_broadcast / patrol_schedule 段；v1.4: 2026-10-05 patrol_schedule 增禁期窗口参数；v1.5: 2026-10-06 增补 supply_drop 段，见 change-log）
+# 版本:   constants-v1.7
+# 日期:   2026-09-27（v1.1/v1.2/v1.3: 2026-10-05 增补 extinguishing_ball / loudspeaker_broadcast / patrol_schedule 段；v1.4: 2026-10-05 patrol_schedule 增禁期窗口参数；v1.5: 2026-10-06 增补 supply_drop 段；v1.6: 2026-10-09 增补 risk_assessment/fire_prediction/patrol_suggestion 三段；v1.7: 2026-10-09 增补 assessment 段，见 change-log）
 #
 # 定位:
 #   本文件只收录 00基线 V1.3 自身章节冻结的数值参数
@@ -21,7 +21,7 @@
 # =====================================================================
 
 meta:
-  file_version: constants-v1.6
+  file_version: constants-v1.7
   baseline: "00 跨文档设计基线与矛盾修订清单 V1.3（docs/00-doc/active/00_跨文档设计基线_V1.3.md）"
   created: 2026-09-27
   status: "V1 Engineering Baseline（工程基线，非科学结论）"
@@ -231,6 +231,42 @@ constants:
       predictions: 120000
       suggestions: 30000
     consumers: ["doc-03", "backend", "ai-service", "frontend", "db"]
+
+  # -------------------------------------------------------------------
+  # 13. F10 灾后过火区域评估参数（2026-10-09 页面聚合设计增补，无基线章节）
+  #    来源: 灾后情况检测页设计（03号新增章节，登记 change-log 2026-10-09）。
+  #    三项决策（用户确认 2026-10-09 方案 A）：
+  #      - 严重度分带：SEVERE/MODERATE/LIGHT 同心收缩三环，写入 assessment_area.area_type；
+  #      - 报告版本策略：幂等覆盖（同事件删旧插新，一事件一份现行报告，report_no 按事件稳定）；
+  #      - 评估对象范围：仅 RESOLVED/CLOSED 火情事件可评估。
+  #    数值属 V1 工程基线，正式投产前按第32章实验协议重定。
+  #    镜像目标: backend application.yml（assessment.*，env 可覆盖）+ ai-service mock
+  # -------------------------------------------------------------------
+  assessment:
+    baseline_chapter: "无（页面聚合设计增补，登记 change-log 2026-10-09）"
+    severity_ratios:                    # 三分带同心收缩比例（SEVERE=火心核最内环，MODERATE 中环，LIGHT 外环）
+      severe: 0.30                      # SEVERE 占总过火面积 30%（最内核）
+      moderate: 0.45                    # MODERATE 占 45%（中环）
+      light: 0.25                       # LIGHT 占 25%（外环）
+    shrink_rate_range:                  # 火场外环相对 fire_polygon 保留率区间（按事件种子确定性取值）
+      min: 0.75
+      max: 0.95
+    confidence: 0.82                    # 一期 Change Detection mock 置信度
+    forest_coverage_range:              # 过火区域内林地占比区间（按事件种子确定性取值）
+      min: 0.55
+      max: 0.80
+    road_length_range:                  # 过火区域内受影响道路长度区间（米，按事件种子确定性取值）
+      min: 0
+      max: 2500
+    facility_area_range:               # 过火区域内受影响设施面积区间（平方米，按事件种子确定性取值）
+      min: 0
+      max: 800
+    report_version_strategy: "idempotent_overwrite（同事件删旧插新，一事件一份现行报告，report_no 按事件稳定）"
+    assessable_statuses: ["RESOLVED", "CLOSED"]
+    poll_intervals_ms:                  # 灾后情况检测页前端轮询
+      reports: 30000
+      incidents: 60000
+    consumers: ["doc-03", "doc-04", "backend", "ai-service", "frontend", "db"]
 
 # ---------------------------------------------------------------------
 # pointers：不属于本文件的数值参数去向（防止同一数字多处维护）

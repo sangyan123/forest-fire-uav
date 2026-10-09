@@ -77,6 +77,20 @@ public class AiServiceClient {
                                         Double estimatedDurationMin) {
     }
 
+    /** F10 单条过火分带（03号第18章，ring 为 [lat,lon] 闭合环） */
+    public record AssessmentBand(String areaType, List<double[]> ring,
+                                 Double areaSquareMeter, Double confidence) {
+    }
+
+    /** F10 灾后过火区域评估结果（三分带 + 四项统计） */
+    public record AssessmentResult(List<AssessmentBand> bands,
+                                   Double burnedAreaSquareMeter,
+                                   Double affectedForestAreaSquareMeter,
+                                   Double affectedRoadLengthMeter,
+                                   Double affectedFacilityAreaSquareMeter,
+                                   Double confidence) {
+    }
+
     /** F01 火情检测：入参 {taskId, mediaId}，出 data.detections[] */
     public List<DetectionItem> detect(UUID taskId, UUID mediaId) {
         Map<String, Object> body = new HashMap<>();
@@ -254,6 +268,36 @@ public class AiServiceClient {
         }
         return new PatrolWaypointsResult(waypoints,
                 doubleOrNull(data, "routeLengthM"), doubleOrNull(data, "estimatedDurationMin"));
+    }
+
+    /** F10 灾后过火区域评估：入参 {incidentId, lastPolygonRing:[[lat,lon]...], params{模型参数透传}}，
+     * 出 data{rings{SEVERE/MODERATE/LIGHT:[[lat,lon]...]}, burnedAreaSquareMeter,
+     * affectedForestAreaSquareMeter, affectedRoadLengthMeter, affectedFacilityAreaSquareMeter, confidence}。
+     * params 唯一来源 backend application.yml assessment.*（镜像 constants v1.7） */
+    public AssessmentResult assessmentBurnedArea(UUID incidentId, List<double[]> lastPolygonRing,
+                                                Map<String, Object> params) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("incidentId", incidentId.toString());
+        body.put("lastPolygonRing", lastPolygonRing);
+        body.put("params", params);
+        JsonNode data = postAndUnwrap("/ai/v1/assessment/burned-area", body);
+        JsonNode rings = data.path("rings");
+        List<AssessmentBand> bands = new ArrayList<>();
+        for (String type : new String[]{"SEVERE", "MODERATE", "LIGHT"}) {
+            List<double[]> ring = new ArrayList<>();
+            for (JsonNode p : rings.path(type)) {
+                if (p.isArray() && p.size() >= 2 && p.get(0).isNumber() && p.get(1).isNumber()) {
+                    ring.add(new double[]{p.get(0).asDouble(), p.get(1).asDouble()});
+                }
+            }
+            bands.add(new AssessmentBand(type, ring, null, null));
+        }
+        return new AssessmentResult(bands,
+                doubleOrNull(data, "burnedAreaSquareMeter"),
+                doubleOrNull(data, "affectedForestAreaSquareMeter"),
+                doubleOrNull(data, "affectedRoadLengthMeter"),
+                doubleOrNull(data, "affectedFacilityAreaSquareMeter"),
+                doubleOrNull(data, "confidence"));
     }
 
     // ---------------- 内部工具 ----------------
