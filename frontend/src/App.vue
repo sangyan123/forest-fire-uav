@@ -65,16 +65,16 @@ const NAV_TABS = [
     icon: '/yichang.png',
     children: [
       {
+        id: 'risk',
+        label: '火情风险检测',
+        icon: '/huo.png',
+      },
+      {
         id: 'anomaly-person',
         label: '人员异常检测',
         icon: '/renyuan.png',
       },
     ],
-  },
-  {
-    id: 'risk',
-    label: '火情风险检测',
-    icon: '/huo.png',
   },
   {
     id: 'uav-manage',
