@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import InfoPanel from './components/InfoPanel.vue'
 import MapView from './components/MapView.vue'
 import Toasts from './components/Toasts.vue'
@@ -51,6 +51,71 @@ import type {
   UavState,
   VerificationResult,
 } from './types'
+
+/* 左侧导航 tab：森林防火主监控页 + 森林异常情况监测（含人员异常检测子项）+ 风险评估（icon 为图片路径） */
+const NAV_TABS = [
+  {
+    id: 'fire',
+    label: '森林防火',
+    icon: '/fire.png',
+  },
+  {
+    id: 'anomaly',
+    label: '森林异常情况监测系统',
+    icon: '/yichang.png',
+    children: [
+      {
+        id: 'anomaly-person',
+        label: '人员异常检测',
+        icon: '/renyuan.png',
+      },
+    ],
+  },
+  {
+    id: 'risk',
+    label: '火情风险检测',
+    icon: '/huo.png',
+  },
+  {
+    id: 'uav-manage',
+    label: '无人机平台系统',
+    icon: '/wurenji1.png',
+    children: [
+      {
+        id: 'uav-manage-device',
+        label: '无人机管理',
+        icon: '/wurenji2.png',
+      },
+      {
+        id: 'uav-station',
+        label: '无人机站管理',
+        icon: '/wurenjizhan.png',
+      },
+    ],
+  },
+]
+const activeTab = ref('fire')
+const sidebarOpen = ref(true)
+/* 每个分组 tab 的下拉展开状态按 id 独立记录，互不影响 */
+const subOpenMap = ref<Record<string, boolean>>({})
+
+/* 含 children 的分组 tab：点击只做下拉展开/收起，不切页面 */
+function onTabClick(t: (typeof NAV_TABS)[number]) {
+  if (t.children) {
+    subOpenMap.value[t.id] = !subOpenMap.value[t.id]
+    if (!sidebarOpen.value) sidebarOpen.value = true
+  } else {
+    activeTab.value = t.id
+  }
+}
+
+// 切回森林防火 tab 时地图容器刚从 display:none 恢复，触发 resize 让 Leaflet 重算尺寸
+watch(activeTab, async (tab) => {
+  if (tab === 'fire') {
+    await nextTick()
+    window.dispatchEvent(new Event('resize'))
+  }
+})
 
 const DEVICE_ID = 'UAV-001'
 const STATE_POLL_MS = 1000
@@ -1024,74 +1089,148 @@ onUnmounted(() => {
 
 <template>
   <div class="app-shell">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark"></span>
-        森林保护无人机智能系统
+    <aside class="side-nav" :class="{ collapsed: !sidebarOpen }">
+      <button
+        class="side-collapse"
+        :title="sidebarOpen ? '收起侧边栏' : '展开侧边栏'"
+        @click="sidebarOpen = !sidebarOpen"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11 7l-5 5 5 5M17 7l-5 5 5 5" />
+        </svg>
+      </button>
+      <div class="side-head">
+        <img class="side-logo" src="/forest.png" alt="logo" />
+        <span class="side-title">森林保护无人机智能系统</span>
       </div>
-      <div class="topbar-right">
-        <button
-          v-for="s in SCENARIOS"
-          :key="s.id"
-          class="fire-btn"
-          :class="[s.css, { active: currentScenarioId === s.id }]"
-          :disabled="scenarioPending !== null && s.id !== 'scenario-01'"
-          @click="onStartScenario(s.id)"
-        >
-          <span v-if="scenarioPending === s.id" class="spinner"></span>
-          <template v-if="scenarioPending === s.id">等待事件生成…（点 01 取消）</template>
-          <template v-else>{{ s.label }}</template>
-        </button>
-        <div class="conn" :class="connectionLost ? 'bad' : 'ok'">
-          <span class="dot"></span>
-          {{ connectionLost ? '后端连接断开' : '后端已连接' }}
+      <nav class="side-tabs">
+        <template v-for="t in NAV_TABS" :key="t.id">
+          <button
+            class="nav-tab"
+            :class="{ active: activeTab === t.id }"
+            @click="onTabClick(t)"
+          >
+            <img class="nav-icon" :src="t.icon" alt="" />
+            <span class="nav-label">{{ t.label }}</span>
+            <svg
+              v-if="sidebarOpen && t.children"
+              class="nav-caret"
+              :class="{ open: subOpenMap[t.id] }"
+              viewBox="0 0 16 16"
+              width="13"
+              height="13"
+            >
+              <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <template v-if="t.children && sidebarOpen && subOpenMap[t.id]">
+            <button
+              v-for="c in t.children"
+              :key="c.id"
+              class="nav-tab nav-subtab"
+              :class="{ active: activeTab === c.id }"
+              @click="activeTab = c.id"
+            >
+              <img class="nav-icon" :src="c.icon" alt="" />
+              <span class="nav-label">{{ c.label }}</span>
+            </button>
+          </template>
+        </template>
+      </nav>
+    </aside>
+    <div class="main-area">
+      <header class="topbar">
+        <div class="topbar-right">
+          <!-- 场景演示按钮属于森林防火页，仅在该 tab 显示 -->
+          <template v-if="activeTab === 'fire'">
+            <button
+              v-for="s in SCENARIOS"
+              :key="s.id"
+              class="fire-btn"
+              :class="[s.css, { active: currentScenarioId === s.id }]"
+              :disabled="scenarioPending !== null && s.id !== 'scenario-01'"
+              @click="onStartScenario(s.id)"
+            >
+              <span v-if="scenarioPending === s.id" class="spinner"></span>
+              <template v-if="scenarioPending === s.id">等待事件生成…（点 01 取消）</template>
+              <template v-else>{{ s.label }}</template>
+            </button>
+          </template>
+          <div class="conn" :class="connectionLost ? 'bad' : 'ok'">
+            <span class="dot"></span>
+            {{ connectionLost ? '后端连接断开' : '后端已连接' }}
+          </div>
         </div>
-      </div>
-    </header>
-    <main class="content">
-      <MapView
-        :state="state"
-        :incidents="incidents"
-        :now="now"
-        :selected-id="selectedIncidentId"
-        :focus="focus"
-        :verifications="verifications"
-        :dispatched="dispatched"
-        :busy="busy"
-        :timelines="timelines"
-        :polygons="polygons"
-        :analysis="latestAnalysis"
-        :analysis-pulse="analysisPulse"
-        :analysis-rounds="analysisRounds"
-        :balls-remaining="ballsRemaining"
-        :bomb-blast="bombBlast"
-        :broadcast-pulse="broadcastPulse"
-        :supply-pulse="supplyPulse"
-        @goto="onGoto"
-        @select-incident="onSelectFromMap"
-        @verify="onVerify"
-        @dispatch="onDispatch"
-        @analyze="onAnalyze"
-        @drop-bomb="onDropBomb"
-        @status-change="onStatusChange"
-        @close-card="onCloseCard"
-      />
-      <InfoPanel
-        :state="state"
-        :connection-lost="connectionLost"
-        :last-update="lastUpdateAt"
-        :now="now"
-        :commands="tracked"
-        :incidents="incidents"
-        :selected-incident-id="selectedIncidentId"
-        :patrol-schedule="patrolSchedule"
-        :supplies-remaining="suppliesRemaining"
-        @quick="onQuick"
-        @select-incident="onSelectFromList"
-        @toggle-patrol="onTogglePatrol"
-        @toggle-closure="onToggleClosure"
-      />
-    </main>
+      </header>
+      <main v-show="activeTab === 'fire'" class="content">
+        <MapView
+          :state="state"
+          :incidents="incidents"
+          :now="now"
+          :selected-id="selectedIncidentId"
+          :focus="focus"
+          :verifications="verifications"
+          :dispatched="dispatched"
+          :busy="busy"
+          :timelines="timelines"
+          :polygons="polygons"
+          :analysis="latestAnalysis"
+          :analysis-pulse="analysisPulse"
+          :analysis-rounds="analysisRounds"
+          :balls-remaining="ballsRemaining"
+          :bomb-blast="bombBlast"
+          :broadcast-pulse="broadcastPulse"
+          :supply-pulse="supplyPulse"
+          @goto="onGoto"
+          @select-incident="onSelectFromMap"
+          @verify="onVerify"
+          @dispatch="onDispatch"
+          @analyze="onAnalyze"
+          @drop-bomb="onDropBomb"
+          @status-change="onStatusChange"
+          @close-card="onCloseCard"
+        />
+        <InfoPanel
+          :state="state"
+          :connection-lost="connectionLost"
+          :last-update="lastUpdateAt"
+          :now="now"
+          :commands="tracked"
+          :incidents="incidents"
+          :selected-incident-id="selectedIncidentId"
+          :patrol-schedule="patrolSchedule"
+          :supplies-remaining="suppliesRemaining"
+          @quick="onQuick"
+          @select-incident="onSelectFromList"
+          @toggle-patrol="onTogglePatrol"
+          @toggle-closure="onToggleClosure"
+        />
+      </main>
+      <main v-if="activeTab === 'risk'" class="content risk-page">
+        <div class="risk-placeholder">
+          <img class="risk-icon" src="/huo.png" alt="" />
+          <p>火情风险检测（F07）功能建设中</p>
+        </div>
+      </main>
+      <main v-if="activeTab === 'uav-manage-device'" class="content risk-page">
+        <div class="risk-placeholder">
+          <img class="risk-icon" src="/wurenji2.png" alt="" />
+          <p>无人机管理功能建设中</p>
+        </div>
+      </main>
+      <main v-if="activeTab === 'uav-station'" class="content risk-page">
+        <div class="risk-placeholder">
+          <img class="risk-icon" src="/wurenjizhan.png" alt="" />
+          <p>无人机站管理功能建设中</p>
+        </div>
+      </main>
+      <main v-if="activeTab === 'anomaly-person'" class="content risk-page">
+        <div class="risk-placeholder">
+          <img class="risk-icon" src="/renyuan.png" alt="" />
+          <p>人员异常检测功能建设中</p>
+        </div>
+      </main>
+    </div>
     <Toasts />
   </div>
 </template>

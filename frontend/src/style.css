@@ -36,43 +36,227 @@ body {
 /* ---------- 整体布局 ---------- */
 .app-shell {
   display: flex;
-  flex-direction: column;
   height: 100%;
+}
+
+/* ---------- 左侧导航栏（品牌标题 + tab + 折叠按钮） ---------- */
+.side-nav {
+  position: relative;
+  display: flex;
+  flex: 0 0 248px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 10px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  transition: flex-basis 0.2s ease;
+}
+
+.side-nav.collapsed {
+  flex-basis: 56px;
+  padding: 14px 8px;
+}
+
+.side-collapse {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.side-collapse:hover {
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.side-collapse svg {
+  width: 14px;
+  height: 14px;
+}
+
+.side-nav.collapsed .side-collapse svg {
+  transform: rotate(180deg);
+}
+
+.side-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* 顶部 26px 让位给右上角的收起按钮，品牌行在其下方自成一行 */
+  padding: 26px 28px 14px 6px;
+}
+
+/* 折叠态：按钮收进文档流，垂直顺序 按钮 → logo → tab（与参照一致），全部居中 */
+.side-nav.collapsed .side-collapse {
+  position: static;
+  margin: 0 auto 10px;
+}
+
+.side-nav.collapsed .side-head {
+  justify-content: center;
+  padding: 0 0 12px;
+}
+
+.side-logo {
+  display: block;
+  flex: none;
+  width: 17px;
+  height: 17px;
+  object-fit: contain;
+  /* 原图为黑色剪影，反白以在深色侧边栏上可见 */
+  filter: invert(1) brightness(1.6);
+}
+
+.side-nav.collapsed .side-logo {
+  width: 18px;
+  height: 18px;
+}
+
+.side-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.side-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  text-align: left;
+  transition: all 0.15s;
+}
+
+.nav-tab .nav-icon {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  object-fit: contain;
+  /* 原图为黑色剪影，反白以贴合深色/激活态 */
+  filter: invert(1) brightness(1.4);
+}
+
+.nav-tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.nav-tab.active {
+  border-color: rgba(0, 229, 160, 0.4);
+  background: rgba(0, 229, 160, 0.08);
+  color: #aef7dd;
+  box-shadow:
+    0 0 10px rgba(0, 229, 160, 0.18),
+    inset 0 0 8px rgba(0, 229, 160, 0.08);
+}
+
+/* 分组下拉箭头：点击展开/收起子项 */
+.nav-caret {
+  flex: none;
+  margin-left: auto;
+  opacity: 0.65;
+  transition: transform 0.18s ease;
+}
+
+.nav-caret:hover {
+  opacity: 1;
+}
+
+.nav-caret.open {
+  transform: rotate(180deg);
+}
+
+/* 子级 tab（如人员检测）：缩进 + 略小 */
+.nav-subtab {
+  padding-left: 40px;
+  font-size: 12.5px;
+  letter-spacing: 0.5px;
+}
+
+/* 折叠态：只留图标 */
+.side-nav.collapsed .nav-tab {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.side-nav.collapsed .nav-tab .nav-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.side-nav.collapsed .side-title,
+.side-nav.collapsed .nav-label {
+  display: none;
+}
+
+.main-area {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* ---------- 风险评估页占位 ---------- */
+.risk-page {
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+
+.risk-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 15px;
+  letter-spacing: 2px;
+}
+
+.risk-placeholder .risk-icon {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  opacity: 0.55;
+  filter: invert(1) brightness(1.2);
 }
 
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   flex: 0 0 56px;
   height: 56px;
   padding: 0 20px;
   background: linear-gradient(90deg, rgba(0, 229, 160, 0.1), rgba(56, 189, 248, 0.08) 40%, transparent);
   border-bottom: 1px solid var(--line);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 1px;
-}
-
-.brand-mark {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 10px var(--accent);
-}
-
-.brand small {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 400;
-  margin-left: 4px;
 }
 
 /* ---------- 连接状态角标 ---------- */
